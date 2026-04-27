@@ -34,8 +34,8 @@
       "name": "understand-anything",
       "description": "Multi-agent pipeline that builds a knowledge graph of any codebase + interactive dashboard. Use to onboard, explain, or trace architecture across files/functions/classes/dependencies. Referenced upstream (always latest).",
       "source": {
-        "source": "github",
-        "repo": "Lum1104/Understand-Anything"
+        "source": "url",
+        "url": "https://github.com/Lum1104/Understand-Anything.git"
       },
       "category": "code-intelligence",
       "tags": ["knowledge-graph", "onboarding", "code-understanding", "reference"]
@@ -51,8 +51,8 @@
       "name": "superpowers",
       "description": "obra/superpowers — TDD, debugging, planning, code review, worktree workflows. Referenced upstream (always latest).",
       "source": {
-        "source": "github",
-        "repo": "obra/superpowers"
+        "source": "url",
+        "url": "https://github.com/obra/superpowers.git"
       },
       "category": "workflow",
       "tags": ["tdd", "debugging", "planning", "review"]
