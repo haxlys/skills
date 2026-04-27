@@ -34,6 +34,7 @@ Pinned to a specific upstream commit; weekly cron opens a PR when upstream advan
 | [web-design-reviewer](vendored/web-design-reviewer) | [github/awesome-copilot](https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer) | MIT |
 | [web-component-design](vendored/wshobson-agents/plugins/ui-design/skills/web-component-design) | [wshobson/agents](https://github.com/wshobson/agents) | MIT |
 | [agent-browser](vendored/agent-browser/skills/agent-browser) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
+| [react-doctor](vendored/react-doctor/skills/react-doctor) | [millionco/react-doctor](https://github.com/millionco/react-doctor) | MIT |
 
 **`agent-browser` bundles 5 specialized sub-skills** loaded on demand via the CLI, not separately installable as Claude plugins:
 
@@ -52,6 +53,7 @@ Resolved at install time from upstream — always latest.
 | Skill | Upstream | License |
 |-------|----------|---------|
 | superpowers | [obra/superpowers](https://github.com/obra/superpowers) | MIT |
+| understand-anything | [Lum1104/Understand-Anything](https://github.com/Lum1104/Understand-Anything) | MIT |
 
 ### External skills NOT in this marketplace
 

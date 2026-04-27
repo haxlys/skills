@@ -31,6 +31,11 @@ jobs:
             path: vendored/wshobson-agents
             branch: main
             sha-file: .upstream-sha-haxlys
+          - name: react-doctor
+            upstream: https://github.com/millionco/react-doctor
+            path: vendored/react-doctor
+            branch: main
+            sha-file: .upstream-sha-haxlys
     steps:
       - uses: actions/checkout@v4
         with:

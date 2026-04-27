@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "haxlys's curated agent skills marketplace. Vendored copies from MIT/Apache-licensed upstream repos + references to trusted skill packs.",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "plugins": [
     {
@@ -22,6 +22,23 @@
       "source": "./vendored/wshobson-agents/plugins/ui-design/skills/web-component-design",
       "category": "frontend",
       "tags": ["react", "vue", "svelte", "components", "vendored"]
+    },
+    {
+      "name": "react-doctor",
+      "description": "Diagnose and fix React code issues — security, performance, correctness, architecture. Outputs a 0-100 score with actionable diagnostics. Vendored from millionco/react-doctor (MIT).",
+      "source": "./vendored/react-doctor/skills/react-doctor",
+      "category": "frontend",
+      "tags": ["react", "diagnostic", "lint", "performance", "vendored"]
+    },
+    {
+      "name": "understand-anything",
+      "description": "Multi-agent pipeline that builds a knowledge graph of any codebase + interactive dashboard. Use to onboard, explain, or trace architecture across files/functions/classes/dependencies. Referenced upstream (always latest).",
+      "source": {
+        "source": "github",
+        "repo": "Lum1104/Understand-Anything"
+      },
+      "category": "code-intelligence",
+      "tags": ["knowledge-graph", "onboarding", "code-understanding", "reference"]
     },
     {
       "name": "agent-browser",

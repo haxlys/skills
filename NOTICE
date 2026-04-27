@@ -11,6 +11,7 @@ Files placed under `vendored/<name>/` are copies of upstream code at a specific 
 | web-design-reviewer | https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer | MIT | `63d08d51f792d53feec8c1c06897cee870e83c18` | 2026-04-27 |
 | web-component-design | https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/web-component-design | MIT | `adde832d8fc08cfb22ab44ec14661293c7ad9153` | 2026-04-27 |
 | agent-browser | https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+| react-doctor | https://github.com/millionco/react-doctor/tree/main/skills/react-doctor | MIT | `7da4ce4e27cb5208ed52ad9d01cae32f96ac177f` | 2026-04-27 |
 
 ### agent-browser bundled sub-skills (NOT separately installable)
 
@@ -31,6 +32,7 @@ Resolved at install time directly from the upstream repository — always latest
 | Skill | Upstream | License | First referenced |
 |-------|----------|---------|------------------|
 | superpowers | https://github.com/obra/superpowers | MIT | 2026-04-27 |
+| understand-anything | https://github.com/Lum1104/Understand-Anything | MIT | 2026-04-27 |
 
 ## External skills NOT redistributed via this marketplace
 
