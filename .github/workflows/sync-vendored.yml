@@ -1,0 +1,76 @@
+name: sync-vendored
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'   # Every Monday 00:00 UTC (Mon 09:00 KST)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: []
+        # Add entries here when vendoring an external skill, e.g.:
+        # - name: superpowers
+        #   upstream: https://github.com/obra/superpowers
+        #   path: vendored/superpowers
+        #   branch: main
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name  "haxlys-skills-bot"
+          git config user.email "haxlys-skills-bot@users.noreply.github.com"
+
+      - name: Pull subtree from upstream
+        id: pull
+        run: |
+          set -e
+          git remote add upstream-${{ matrix.name }} ${{ matrix.upstream }} || true
+          git fetch upstream-${{ matrix.name }} ${{ matrix.branch }}
+          UPSTREAM_SHA=$(git rev-parse upstream-${{ matrix.name }}/${{ matrix.branch }})
+          CURRENT_SHA=$(cat ${{ matrix.path }}/.upstream-sha 2>/dev/null || echo "")
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          echo "current_sha=$CURRENT_SHA"   >> "$GITHUB_OUTPUT"
+          if [ "$UPSTREAM_SHA" = "$CURRENT_SHA" ]; then
+            echo "No upstream changes for ${{ matrix.name }}"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -d "${{ matrix.path }}" ]; then
+            git subtree pull --prefix=${{ matrix.path }} upstream-${{ matrix.name }} ${{ matrix.branch }} --squash
+          else
+            git subtree add  --prefix=${{ matrix.path }} upstream-${{ matrix.name }} ${{ matrix.branch }} --squash
+          fi
+          mkdir -p ${{ matrix.path }}
+          echo "$UPSTREAM_SHA" > ${{ matrix.path }}/.upstream-sha
+          git add ${{ matrix.path }}/.upstream-sha
+          git commit --amend --no-edit || true
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open PR if changed
+        if: steps.pull.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "chore(vendored): sync ${{ matrix.name }} to ${{ steps.pull.outputs.upstream_sha }}"
+          body: |
+            Automated upstream sync.
+
+            - Skill: `${{ matrix.name }}`
+            - Upstream: ${{ matrix.upstream }}
+            - Old SHA: `${{ steps.pull.outputs.current_sha }}`
+            - New SHA: `${{ steps.pull.outputs.upstream_sha }}`
+
+            Review the diff before merging. Validate-skills CI will run automatically.
+          branch: sync/${{ matrix.name }}
+          commit-message: "chore(vendored): sync ${{ matrix.name }}"
+          delete-branch: true

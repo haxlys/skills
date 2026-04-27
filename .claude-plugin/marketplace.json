@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/schemas/marketplace.schema.json",
+  "name": "haxlys-skills",
+  "owner": {
+    "name": "haxlys",
+    "url": "https://github.com/haxlys"
+  },
+  "metadata": {
+    "description": "haxlys's curated agent skills marketplace. Self-authored skills + references to trusted upstream skill packs.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "web-design-reviewer",
+      "description": "Visual inspection of websites to identify and fix design issues at the source code level.",
+      "source": "./skills/web-design-reviewer",
+      "category": "frontend",
+      "tags": ["design", "review", "accessibility", "responsive"]
+    },
+    {
+      "name": "superpowers",
+      "description": "obra/superpowers — TDD, debugging, planning, code review, worktree workflows. Referenced upstream (always latest).",
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers"
+      },
+      "category": "workflow",
+      "tags": ["tdd", "debugging", "planning", "review"]
+    }
+  ]
+}

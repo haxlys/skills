@@ -1,0 +1,19 @@
+# NOTICE
+
+This repository contains both self-authored skills (MIT, © haxlys) and references / vendored copies of skills authored by third parties. Each third-party entry below retains its original license; see the linked source for full terms.
+
+## Referenced upstream (no vendoring)
+
+Skills declared in `.claude-plugin/marketplace.json` with `source: github` are fetched at install time from the upstream repository. No source is duplicated here.
+
+| Skill        | Upstream                                                  | License | First referenced |
+|--------------|-----------------------------------------------------------|---------|------------------|
+| superpowers  | https://github.com/obra/superpowers                       | MIT     | 2026-04-27       |
+
+## Vendored (copied via git subtree)
+
+Files placed under `vendored/<name>/` are copies of upstream code at a specific commit. The `vendored/<name>/.upstream-sha` file records the last synced SHA. The `sync-vendored.yml` workflow opens a PR whenever the upstream advances.
+
+| Skill | Upstream | License | Last sync |
+|-------|----------|---------|-----------|
+| (none yet) |  |  |  |
