@@ -6,18 +6,23 @@ This repository contains both self-authored skills (MIT, © haxlys) and vendored
 
 Files placed under `vendored/<name>/` are copies of upstream code at a specific commit. The `vendored/<name>/.upstream-sha-haxlys` file records the last synced SHA. The `sync-vendored.yml` workflow opens a PR whenever the upstream advances.
 
-| Skill (exposed) | Upstream | License | Last sync (SHA) | Date |
-|-----------------|----------|---------|-----------------|------|
+| Plugin (exposed) | Upstream | License | Last sync (SHA) | Date |
+|------------------|----------|---------|-----------------|------|
 | web-design-reviewer | https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer | MIT | `63d08d51f792d53feec8c1c06897cee870e83c18` | 2026-04-27 |
 | web-component-design | https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/web-component-design | MIT | `adde832d8fc08cfb22ab44ec14661293c7ad9153` | 2026-04-27 |
 | agent-browser | https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
-| electron | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/electron | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
-| slack | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/slack | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
-| vercel-sandbox | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/vercel-sandbox | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
-| agentcore | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/agentcore | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
-| dogfood | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/dogfood | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
 
-The 6 vercel-labs/agent-browser skills share a single upstream repo at `vendored/agent-browser/`; they sync as one unit.
+### agent-browser bundled sub-skills (NOT separately installable)
+
+The vercel-labs/agent-browser repo ships 5 sub-skills under `skill-data/` that the agent-browser CLI loads on demand via `agent-browser skills get <name>`. They are **vendored along with the parent plugin** but not exposed as separate Claude marketplace plugins (matching upstream's design — upstream's own marketplace.json declares only one plugin: `agent-browser`).
+
+| Sub-skill | Vendored path | Loaded via |
+|-----------|---------------|-----------|
+| electron       | `vendored/agent-browser/skill-data/electron`       | `agent-browser skills get electron` |
+| slack          | `vendored/agent-browser/skill-data/slack`          | `agent-browser skills get slack` |
+| vercel-sandbox | `vendored/agent-browser/skill-data/vercel-sandbox` | `agent-browser skills get vercel-sandbox` |
+| agentcore     | `vendored/agent-browser/skill-data/agentcore`      | `agent-browser skills get agentcore` |
+| dogfood        | `vendored/agent-browser/skill-data/dogfood`        | `agent-browser skills get dogfood` |
 
 ## Referenced upstream (no copy — Claude Code marketplace `source: github`)
 

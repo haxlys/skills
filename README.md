@@ -10,11 +10,11 @@ Cross-platform by design: works with **Claude Code, Codex CLI, Gemini CLI, GitHu
 # Add the marketplace
 /plugin marketplace add haxlys/skills
 
-# Install individual plugins
+# Install whatever you need (see Catalog below)
 /plugin install web-design-reviewer@haxlys-skills
-/plugin install agent-browser@haxlys-skills
-/plugin install dogfood@haxlys-skills
-# ...etc — see Catalog below
+/plugin install web-component-design@haxlys-skills
+/plugin install agent-browser@haxlys-skills        # bundles electron/slack/sandbox/agentcore/dogfood sub-skills
+/plugin install superpowers@haxlys-skills          # references obra/superpowers
 ```
 
 ## Catalog
@@ -25,20 +25,25 @@ Cross-platform by design: works with **Claude Code, Codex CLI, Gemini CLI, GitHu
 |-------|----------|-------------|
 | _(none yet)_ |  |  |
 
-### Vendored (copied + tracked)
+### Vendored plugins (copied + tracked)
 
 Pinned to a specific upstream commit; weekly cron opens a PR when upstream advances.
 
-| Skill | Upstream | License |
-|-------|----------|---------|
+| Plugin | Upstream | License |
+|--------|----------|---------|
 | [web-design-reviewer](vendored/web-design-reviewer) | [github/awesome-copilot](https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer) | MIT |
 | [web-component-design](vendored/wshobson-agents/plugins/ui-design/skills/web-component-design) | [wshobson/agents](https://github.com/wshobson/agents) | MIT |
 | [agent-browser](vendored/agent-browser/skills/agent-browser) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
-| [electron](vendored/agent-browser/skill-data/electron) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
-| [slack](vendored/agent-browser/skill-data/slack) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
-| [vercel-sandbox](vendored/agent-browser/skill-data/vercel-sandbox) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
-| [agentcore](vendored/agent-browser/skill-data/agentcore) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
-| [dogfood](vendored/agent-browser/skill-data/dogfood) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
+
+**`agent-browser` bundles 5 specialized sub-skills** loaded on demand via the CLI, not separately installable as Claude plugins:
+
+| Sub-skill | Use for | CLI command |
+|-----------|---------|-------------|
+| `electron`        | Electron desktop apps (VS Code, Slack, Discord, Figma, …) | `agent-browser skills get electron` |
+| `slack`           | Slack workspace automation                                | `agent-browser skills get slack` |
+| `vercel-sandbox`  | Run agent-browser inside Vercel Sandbox microVMs          | `agent-browser skills get vercel-sandbox` |
+| `agentcore`       | Run on AWS Bedrock AgentCore cloud browsers               | `agent-browser skills get agentcore` |
+| `dogfood`         | Exploratory testing / QA / bug hunts                      | `agent-browser skills get dogfood` |
 
 ### Referenced upstream (no vendoring)
 
