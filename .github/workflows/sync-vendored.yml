@@ -15,12 +15,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: []
-        # Add entries here when vendoring an external skill, e.g.:
-        # - name: superpowers
-        #   upstream: https://github.com/obra/superpowers
-        #   path: vendored/superpowers
-        #   branch: main
+        include:
+          - name: web-design-reviewer
+            upstream: https://github.com/github/awesome-copilot
+            path: vendored/web-design-reviewer
+            branch: main
+            sha-file: .upstream-sha
+          - name: agent-browser
+            upstream: https://github.com/vercel-labs/agent-browser
+            path: vendored/agent-browser
+            branch: main
+            sha-file: .upstream-sha-haxlys
+          - name: wshobson-agents
+            upstream: https://github.com/wshobson/agents
+            path: vendored/wshobson-agents
+            branch: main
+            sha-file: .upstream-sha-haxlys
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,7 +48,7 @@ jobs:
           git remote add upstream-${{ matrix.name }} ${{ matrix.upstream }} || true
           git fetch upstream-${{ matrix.name }} ${{ matrix.branch }}
           UPSTREAM_SHA=$(git rev-parse upstream-${{ matrix.name }}/${{ matrix.branch }})
-          CURRENT_SHA=$(cat ${{ matrix.path }}/.upstream-sha 2>/dev/null || echo "")
+          CURRENT_SHA=$(cat ${{ matrix.path }}/${{ matrix.sha-file }} 2>/dev/null || echo "")
           echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
           echo "current_sha=$CURRENT_SHA"   >> "$GITHUB_OUTPUT"
           if [ "$UPSTREAM_SHA" = "$CURRENT_SHA" ]; then
@@ -52,8 +62,8 @@ jobs:
             git subtree add  --prefix=${{ matrix.path }} upstream-${{ matrix.name }} ${{ matrix.branch }} --squash
           fi
           mkdir -p ${{ matrix.path }}
-          echo "$UPSTREAM_SHA" > ${{ matrix.path }}/.upstream-sha
-          git add ${{ matrix.path }}/.upstream-sha
+          echo "$UPSTREAM_SHA" > ${{ matrix.path }}/${{ matrix.sha-file }}
+          git add ${{ matrix.path }}/${{ matrix.sha-file }}
           git commit --amend --no-edit || true
           echo "changed=true" >> "$GITHUB_OUTPUT"
 

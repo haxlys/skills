@@ -5,8 +5,8 @@
     "url": "https://github.com/haxlys"
   },
   "metadata": {
-    "description": "haxlys's curated agent skills marketplace. Self-authored skills + references to trusted upstream skill packs.",
-    "version": "0.1.0"
+    "description": "haxlys's curated agent skills marketplace. Vendored copies from MIT/Apache-licensed upstream repos + references to trusted skill packs.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
@@ -15,6 +15,55 @@
       "source": "./vendored/web-design-reviewer",
       "category": "frontend",
       "tags": ["design", "review", "accessibility", "responsive", "vendored"]
+    },
+    {
+      "name": "web-component-design",
+      "description": "Master React, Vue, and Svelte component patterns. Vendored from wshobson/agents (MIT).",
+      "source": "./vendored/wshobson-agents/plugins/ui-design/skills/web-component-design",
+      "category": "frontend",
+      "tags": ["react", "vue", "svelte", "components", "vendored"]
+    },
+    {
+      "name": "agent-browser",
+      "description": "Browser automation CLI for AI agents. Vendored from vercel-labs/agent-browser (Apache-2.0).",
+      "source": "./vendored/agent-browser/skills/agent-browser",
+      "category": "browser-automation",
+      "tags": ["browser", "automation", "vendored"]
+    },
+    {
+      "name": "electron",
+      "description": "Automate Electron desktop apps via agent-browser. Vendored from vercel-labs/agent-browser (Apache-2.0).",
+      "source": "./vendored/agent-browser/skill-data/electron",
+      "category": "browser-automation",
+      "tags": ["electron", "desktop", "automation", "vendored"]
+    },
+    {
+      "name": "slack",
+      "description": "Interact with Slack workspaces using browser automation. Vendored from vercel-labs/agent-browser (Apache-2.0).",
+      "source": "./vendored/agent-browser/skill-data/slack",
+      "category": "browser-automation",
+      "tags": ["slack", "automation", "vendored"]
+    },
+    {
+      "name": "vercel-sandbox",
+      "description": "Run agent-browser inside Vercel Sandbox microVMs. Vendored from vercel-labs/agent-browser (Apache-2.0).",
+      "source": "./vendored/agent-browser/skill-data/vercel-sandbox",
+      "category": "browser-automation",
+      "tags": ["vercel", "sandbox", "automation", "vendored"]
+    },
+    {
+      "name": "agentcore",
+      "description": "Run agent-browser on AWS Bedrock AgentCore cloud browsers. Vendored from vercel-labs/agent-browser (Apache-2.0).",
+      "source": "./vendored/agent-browser/skill-data/agentcore",
+      "category": "browser-automation",
+      "tags": ["aws", "bedrock", "automation", "vendored"]
+    },
+    {
+      "name": "dogfood",
+      "description": "Systematically explore and test a web app to find bugs and UX issues. Vendored from vercel-labs/agent-browser (Apache-2.0).",
+      "source": "./vendored/agent-browser/skill-data/dogfood",
+      "category": "qa",
+      "tags": ["qa", "testing", "exploration", "vendored"]
     },
     {
       "name": "superpowers",

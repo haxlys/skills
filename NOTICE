@@ -1,19 +1,41 @@
 # NOTICE
 
-This repository contains both self-authored skills (MIT, © haxlys) and references / vendored copies of skills authored by third parties. Each third-party entry below retains its original license; see the linked source for full terms.
+This repository contains both self-authored skills (MIT, © haxlys) and vendored copies / references to skills authored by third parties. Each third-party entry below retains its original license; see the linked source for full terms.
 
-## Referenced upstream (no vendoring)
+## Vendored (full upstream copy via git subtree)
 
-Skills declared in `.claude-plugin/marketplace.json` with `source: github` are fetched at install time from the upstream repository. No source is duplicated here.
+Files placed under `vendored/<name>/` are copies of upstream code at a specific commit. The `vendored/<name>/.upstream-sha-haxlys` file records the last synced SHA. The `sync-vendored.yml` workflow opens a PR whenever the upstream advances.
 
-| Skill        | Upstream                                                  | License | First referenced |
-|--------------|-----------------------------------------------------------|---------|------------------|
-| superpowers  | https://github.com/obra/superpowers                       | MIT     | 2026-04-27       |
-
-## Vendored (copied via git subtree)
-
-Files placed under `vendored/<name>/` are copies of upstream code at a specific commit. The `vendored/<name>/.upstream-sha` file records the last synced SHA. The `sync-vendored.yml` workflow opens a PR whenever the upstream advances.
-
-| Skill | Upstream | License | Last sync (SHA) | Date |
-|-------|----------|---------|-----------------|------|
+| Skill (exposed) | Upstream | License | Last sync (SHA) | Date |
+|-----------------|----------|---------|-----------------|------|
 | web-design-reviewer | https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer | MIT | `63d08d51f792d53feec8c1c06897cee870e83c18` | 2026-04-27 |
+| web-component-design | https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/web-component-design | MIT | `adde832d8fc08cfb22ab44ec14661293c7ad9153` | 2026-04-27 |
+| agent-browser | https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+| electron | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/electron | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+| slack | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/slack | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+| vercel-sandbox | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/vercel-sandbox | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+| agentcore | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/agentcore | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+| dogfood | https://github.com/vercel-labs/agent-browser/tree/main/skill-data/dogfood | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+
+The 6 vercel-labs/agent-browser skills share a single upstream repo at `vendored/agent-browser/`; they sync as one unit.
+
+## Referenced upstream (no copy — Claude Code marketplace `source: github`)
+
+Resolved at install time directly from the upstream repository — always latest, no local copy.
+
+| Skill | Upstream | License | First referenced |
+|-------|----------|---------|------------------|
+| superpowers | https://github.com/obra/superpowers | MIT | 2026-04-27 |
+
+## External skills NOT redistributed via this marketplace
+
+The following skills are useful and the AEREN team has used them, but they live in upstream repositories that lack a LICENSE file and a Claude Code-compatible plugin manifest. They cannot be redistributed (no license) and cannot be referenced via `source: github` (no plugin.json upstream). To use them, install upstream directly:
+
+| Skill | Upstream | Notes |
+|-------|----------|-------|
+| web-design-guidelines | https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines | No LICENSE, no plugin.json. Copy SKILL.md manually into your `.claude/skills/`. |
+| find-skills | https://github.com/vercel-labs/skills/tree/main/skills/find-skills | Same — manual install only. |
+
+## Skills explored but skipped
+
+`frontend-responsive-design-standards` — visible at https://github.com/am-will/codex-skills/tree/main/skills/frontend-responsive-ui (mirror claiming "imported from Anthropic"), but the codex-skills repo has no LICENSE and the supposed Anthropic origin is not present in the public anthropics/skills repo. Skipped pending a clean upstream.
