@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/schemas/marketplace.schema.json",
   "name": "haxlys-skills",
   "owner": {
     "name": "haxlys",
