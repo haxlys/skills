@@ -17,17 +17,25 @@ Cross-platform by design: works with **Claude Code, Codex CLI, Gemini CLI, GitHu
 
 | Skill | Category | Description |
 |-------|----------|-------------|
-| [web-design-reviewer](skills/web-design-reviewer) | frontend | Visual inspection of websites to identify and fix design issues |
+| _(none yet)_ |  |  |
 
-### Referenced upstream
+### Vendored (copied + tracked)
 
-These are referenced directly from the upstream repo (always latest, no vendoring):
+Pinned to a specific upstream commit; weekly cron opens a PR when upstream advances.
+
+| Skill | Upstream | License |
+|-------|----------|---------|
+| [web-design-reviewer](vendored/web-design-reviewer) | [github/awesome-copilot](https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer) | MIT |
+
+### Referenced upstream (no vendoring)
+
+Resolved at install time from upstream — always latest.
 
 | Skill | Upstream | License |
 |-------|----------|---------|
 | superpowers | [obra/superpowers](https://github.com/obra/superpowers) | MIT |
 
-See [`NOTICE`](NOTICE) for full attribution and version pinning.
+See [`NOTICE`](NOTICE) for full attribution and pinned SHAs.
 
 ## Repository structure
 
@@ -53,10 +61,17 @@ AGENTS.md                        # Cross-platform agent guidance
 
 ## Adding a new skill
 
-1. Create `skills/<name>/SKILL.md` following the [spec](https://agentskills.io/specification).
-2. Add an entry to `.claude-plugin/marketplace.json`.
-3. Run `npx -y @agentskills/skills-ref validate skills/<name>/SKILL.md` locally.
-4. Open a PR. CI runs the same validation.
+**Self-authored:**
+1. Create `skills/<name>/SKILL.md` (agentskills.io spec) + `skills/<name>/.claude-plugin/plugin.json` (Claude Code).
+2. Add an entry to `.claude-plugin/marketplace.json` with `source: ./skills/<name>`.
+3. Validate locally: `claude plugin validate skills/<name>` and `claude plugin validate .`.
+4. Open a PR. CI runs the same checks.
+
+**Vendoring an external skill:**
+1. Copy upstream into `vendored/<name>/`, preserve the original SKILL.md and add `metadata.upstream`/`metadata.upstream-license`/`metadata.upstream-sha`.
+2. Record the synced SHA in `vendored/<name>/.upstream-sha`.
+3. Add an entry to `NOTICE` (Vendored table) with date + SHA.
+4. Add the skill to `.github/workflows/sync-vendored.yml` matrix so weekly PRs are opened on upstream changes.
 
 ## License
 

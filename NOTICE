@@ -14,6 +14,6 @@ Skills declared in `.claude-plugin/marketplace.json` with `source: github` are f
 
 Files placed under `vendored/<name>/` are copies of upstream code at a specific commit. The `vendored/<name>/.upstream-sha` file records the last synced SHA. The `sync-vendored.yml` workflow opens a PR whenever the upstream advances.
 
-| Skill | Upstream | License | Last sync |
-|-------|----------|---------|-----------|
-| (none yet) |  |  |  |
+| Skill | Upstream | License | Last sync (SHA) | Date |
+|-------|----------|---------|-----------------|------|
+| web-design-reviewer | https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer | MIT | `63d08d51f792d53feec8c1c06897cee870e83c18` | 2026-04-27 |

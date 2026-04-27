@@ -11,10 +11,10 @@
   "plugins": [
     {
       "name": "web-design-reviewer",
-      "description": "Visual inspection of websites to identify and fix design issues at the source code level.",
-      "source": "./skills/web-design-reviewer",
+      "description": "Visual inspection of websites to identify and fix design issues. Vendored from github/awesome-copilot (MIT).",
+      "source": "./vendored/web-design-reviewer",
       "category": "frontend",
-      "tags": ["design", "review", "accessibility", "responsive"]
+      "tags": ["design", "review", "accessibility", "responsive", "vendored"]
     },
     {
       "name": "superpowers",
