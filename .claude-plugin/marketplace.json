@@ -56,6 +56,16 @@
       },
       "category": "workflow",
       "tags": ["tdd", "debugging", "planning", "review"]
+    },
+    {
+      "name": "hermes-tweet",
+      "description": "Hermes Agent plugin for X/Twitter research, trends, monitored context, and gated account actions. Referenced upstream (always latest).",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/Xquik-dev/hermes-tweet.git"
+      },
+      "category": "social-media",
+      "tags": ["hermes", "twitter", "x", "social-media", "reference"]
     }
   ]
 }

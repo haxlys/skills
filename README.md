@@ -15,6 +15,7 @@ Cross-platform by design: works with **Claude Code, Codex CLI, Gemini CLI, GitHu
 /plugin install web-component-design@haxlys-skills
 /plugin install agent-browser@haxlys-skills        # bundles electron/slack/sandbox/agentcore/dogfood sub-skills
 /plugin install superpowers@haxlys-skills          # references obra/superpowers
+/plugin install hermes-tweet@haxlys-skills         # references Xquik-dev/hermes-tweet
 ```
 
 ## Catalog
@@ -54,6 +55,7 @@ Resolved at install time from upstream — always latest.
 |-------|----------|---------|
 | superpowers | [obra/superpowers](https://github.com/obra/superpowers) | MIT |
 | understand-anything | [Lum1104/Understand-Anything](https://github.com/Lum1104/Understand-Anything) | MIT |
+| hermes-tweet | [Xquik-dev/hermes-tweet](https://github.com/Xquik-dev/hermes-tweet) | MIT |
 
 ### External skills NOT in this marketplace
 
