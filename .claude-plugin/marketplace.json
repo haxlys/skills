@@ -25,7 +25,7 @@
     },
     {
       "name": "react-doctor",
-      "description": "Diagnose and fix React code issues — security, performance, correctness, architecture. Outputs a 0-100 score with actionable diagnostics. Vendored from millionco/react-doctor (MIT).",
+      "description": "Diagnose and fix React code issues - security, performance, correctness, architecture. Outputs actionable diagnostics. Vendored from millionco/react-doctor (MIT).",
       "source": "./vendored/react-doctor/skills/react-doctor",
       "category": "frontend",
       "tags": ["react", "diagnostic", "lint", "performance", "vendored"]
@@ -49,13 +49,23 @@
     },
     {
       "name": "superpowers",
-      "description": "obra/superpowers — TDD, debugging, planning, code review, worktree workflows. Referenced upstream (always latest).",
+      "description": "obra/superpowers - TDD, debugging, planning, code review, worktree workflows. Referenced upstream (always latest).",
       "source": {
         "source": "url",
         "url": "https://github.com/obra/superpowers.git"
       },
       "category": "workflow",
       "tags": ["tdd", "debugging", "planning", "review"]
+    },
+    {
+      "name": "x-twitter-scraper",
+      "description": "Xquik X/Twitter data workflows for agents: tweet search, profile lookup, follower exports, media downloads, monitoring, webhooks, MCP, REST API setup, SDK setup, and confirmation-gated publishing.",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/Xquik-dev/x-twitter-scraper.git"
+      },
+      "category": "integrations",
+      "tags": ["twitter", "x", "social-media", "mcp", "webhooks", "data-extraction"]
     }
   ]
 }

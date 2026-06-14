@@ -1,6 +1,6 @@
 # haxlys/skills
 
-A curated marketplace of [Agent Skills](https://agentskills.io/specification) — reusable workflow packs for AI coding agents.
+A curated marketplace of [Agent Skills](https://agentskills.io/specification) - reusable workflow packs for AI coding agents.
 
 Cross-platform by design: works with **Claude Code, Codex CLI, Gemini CLI, GitHub Copilot, Cursor**, and any tool that follows the [SKILL.md open standard](https://agentskills.io/specification).
 
@@ -48,26 +48,27 @@ Pinned to a specific upstream commit; weekly cron opens a PR when upstream advan
 
 ### Referenced upstream (no vendoring)
 
-Resolved at install time from upstream — always latest.
+Resolved at install time from upstream - always latest.
 
 | Skill | Upstream | License |
 |-------|----------|---------|
 | superpowers | [obra/superpowers](https://github.com/obra/superpowers) | MIT |
 | understand-anything | [Lum1104/Understand-Anything](https://github.com/Lum1104/Understand-Anything) | MIT |
+| x-twitter-scraper | [Xquik-dev/x-twitter-scraper](https://github.com/Xquik-dev/x-twitter-scraper) | MIT |
 
 ### External skills NOT in this marketplace
 
 Used by the AEREN team but cannot be redistributed (upstream lacks LICENSE) and cannot be referenced via Claude marketplace (upstream lacks plugin.json). Install upstream directly:
 
-- **web-design-guidelines** — [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines)
-- **find-skills** — [vercel-labs/skills](https://github.com/vercel-labs/skills/tree/main/skills/find-skills)
+- **web-design-guidelines** - [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines)
+- **find-skills** - [vercel-labs/skills](https://github.com/vercel-labs/skills/tree/main/skills/find-skills)
 
 See [`NOTICE`](NOTICE) for full attribution, pinned SHAs, and skipped-skill rationale.
 
 ## Repository structure
 
 ```
-skills/                          # SSOT — agentskills.io spec compliant
+skills/                          # SSOT - agentskills.io spec compliant
 .claude-plugin/marketplace.json  # Claude Code catalog
 vendored/                        # External skills copied via git subtree (when local control needed)
 .github/workflows/
@@ -102,4 +103,4 @@ AGENTS.md                        # Cross-platform agent guidance
 
 ## License
 
-MIT (self-authored skills). Vendored skills retain their original licenses — see [`NOTICE`](NOTICE).
+MIT (self-authored skills). Vendored skills retain their original licenses - see [`NOTICE`](NOTICE).
