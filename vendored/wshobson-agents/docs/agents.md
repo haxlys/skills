@@ -1,6 +1,6 @@
 # Agent Reference
 
-Complete reference for all **184 specialized AI agents** organized by category with model assignments.
+Complete reference for all **192 local specialized AI agents** organized by category with model assignments.
 
 ## Agent Categories
 
@@ -106,7 +106,7 @@ Complete reference for all **184 specialized AI agents** organized by category w
 
 | Agent                                                             | Model | Description                                                                          |
 | ----------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------ |
-| [conductor-validator](../conductor/agents/conductor-validator.md) | opus  | Validates Conductor project artifacts for completeness, consistency, and correctness |
+| [conductor-validator](../plugins/conductor/agents/conductor-validator.md) | opus  | Validates Conductor project artifacts for completeness, consistency, and correctness |
 
 ### Quality Assurance & Security
 
@@ -186,6 +186,7 @@ Complete reference for all **184 specialized AI agents** organized by category w
 | Agent                                                                             | Model  | Description                                  |
 | --------------------------------------------------------------------------------- | ------ | -------------------------------------------- |
 | [content-marketer](../plugins/content-marketing/agents/content-marketer.md)       | sonnet | Blog posts, social media, email campaigns    |
+| [social-publishing-publisher](../plugins/social-publishing/agents/social-publishing-publisher.md) | haiku | Multi-platform social media publishing via SocialClaw |
 | [sales-automator](../plugins/customer-sales-automation/agents/sales-automator.md) | haiku  | Cold emails, follow-ups, proposal generation |
 
 #### Support & Legal
@@ -227,11 +228,13 @@ Agents are assigned to specific Claude models based on task complexity and compu
 
 ### Model Distribution Summary
 
-| Model  | Agent Count | Use Case                                                        |
-| ------ | ----------- | --------------------------------------------------------------- |
-| Opus   | 42          | Critical architecture, security, code review, production coding |
-| Sonnet | 39          | Complex tasks, support with intelligence                        |
-| Haiku  | 18          | Fast operational tasks                                          |
+| Model   | Agent Count | Use Case                                                        |
+| ------- | ----------- | --------------------------------------------------------------- |
+| Fable   | 0           | Longest-horizon autonomous work (tier above Opus; see criteria) |
+| Opus    | 54          | Critical architecture, security, code review, production coding |
+| Sonnet  | 62          | Complex tasks, support with intelligence                        |
+| Haiku   | 20          | Fast operational tasks                                          |
+| Inherit | 49          | Complex tasks where the user chooses the model at runtime       |
 
 ### Model Selection Criteria
 
@@ -260,6 +263,30 @@ Agents are assigned to specific Claude models based on task complexity and compu
 - Providing language-specific expertise
 - Orchestrating multi-agent workflows
 - Handling business-critical legal/HR matters
+
+#### Fable - Longest-Horizon Autonomous Work
+
+Claude Fable 5 (`model: fable`) is the tier above Opus. It is opt-in in Claude Code
+(v2.1.170+, never the default) and carries roughly 2.6× the effective cost of Opus
+($10/$50 per MTok plus a ~30% heavier tokenizer), so reserve it for agents where Opus
+demonstrably needs multiple attempts.
+
+**Use when:**
+
+- Running multi-hour autonomous sessions (large codebase migrations, overnight refactors)
+- Executing end-to-end work from a single well-specified goal
+- Coordinating long-lived parallel sub-agent workstreams
+
+**Avoid for:**
+
+- Security-analysis agents — Fable 5's cyber/bio safety classifiers fall back to
+  Opus 4.8 on that content anyway
+- Anything Sonnet or Opus already completes in one pass
+
+Other harnesses map `fable` to their top available model (see
+[authoring.md](authoring.md#model-aliases)). Fable-tier agent bodies should state goals
+and constraints rather than step-by-step scaffolding, and must not ask the model to echo
+its internal reasoning.
 
 ### Hybrid Orchestration Patterns
 

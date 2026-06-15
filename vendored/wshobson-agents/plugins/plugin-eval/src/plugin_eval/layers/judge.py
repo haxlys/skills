@@ -38,7 +38,7 @@ Score 1.0 — Perfectly calibrated: Minimal surface area, maximum cohesion, idea
 _MODEL_MAP: dict[str, str] = {
     "haiku": "claude-haiku-4-5-20251001",
     "sonnet": "claude-sonnet-4-6",
-    "opus": "claude-opus-4-7",
+    "opus": "claude-opus-4-8",
 }
 
 
@@ -65,7 +65,7 @@ async def query_llm(prompt: str, system: str = "", model: str = "claude-sonnet-4
         )
     except ImportError as exc:
         raise RuntimeError(
-            "claude-agent-sdk is required for LLM judge. Install with: pip install plugin-eval[llm]"
+            "claude-agent-sdk is required for LLM judge. Install with: uv sync --extra llm"
         ) from exc
 
     full_prompt = prompt
