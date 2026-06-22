@@ -61,6 +61,13 @@ const AUTH_LOGIN_PREFERRED_SELECTOR_WINDOW_MS: u64 = 5_000;
 pub struct PendingConfirmation {
     pub action: String,
     pub cmd: Value,
+    approved_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveProviderSession {
+    session: providers::ProviderSession,
+    plugins: Vec<crate::plugins::PluginConfig>,
 }
 
 /// Captured request/response metadata used to export HAR 1.2 files.
@@ -150,6 +157,9 @@ pub struct PendingDialog {
     pub message: String,
     pub url: String,
     pub default_prompt: Option<String>,
+    /// Flat CDP session the dialog opened on. A dialog on a background tab
+    /// must not block commands targeting the active tab.
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -180,7 +190,7 @@ struct DrainedEvents {
 /// `storage_state` is handled separately in `handle_launch()`: explicit
 /// `storageState` launches always require a clean local browser so the loaded
 /// state replaces the prior session instead of merging into it.
-fn launch_hash(opts: &LaunchOptions) -> u64 {
+fn launch_hash(opts: &LaunchOptions, plugin_init_scripts: &[String]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
@@ -196,6 +206,8 @@ fn launch_hash(opts: &LaunchOptions) -> u64 {
     opts.proxy_password.hash(&mut h);
     opts.user_agent.hash(&mut h);
     opts.allow_file_access.hash(&mut h);
+    opts.hide_scrollbars.hash(&mut h);
+    plugin_init_scripts.hash(&mut h);
     h.finish()
 }
 
@@ -244,6 +256,9 @@ pub struct DaemonState {
     pub mouse_state: MouseState,
     /// Tracks the currently open JavaScript dialog (alert/confirm/prompt), if any.
     pub pending_dialog: Option<PendingDialog>,
+    /// A mouse button left logically down because a dialog opened between
+    /// mousePressed and mouseReleased; released when the dialog is resolved.
+    pub pending_pointer_release: Option<super::interaction::PendingRelease>,
     /// When true, automatically dismiss `beforeunload` dialogs and accept `alert`
     /// dialogs so they never block the agent.  Enabled by default.
     pub auto_dialog: bool,
@@ -260,6 +275,12 @@ pub struct DaemonState {
     /// Last viewport settings (width, height, deviceScaleFactor, mobile),
     /// re-applied to new contexts (e.g., recording).
     pub viewport: Option<(i32, i32, f64, bool)>,
+    /// Init script sources returned by launch mutator plugins for this launch.
+    pub plugin_init_scripts: Vec<String>,
+    /// Provider cleanup metadata for the active external browser session.
+    active_provider_session: Option<ActiveProviderSession>,
+    /// Actions already approved while replaying a confirmed command.
+    confirmed_policy_actions: HashSet<String>,
 }
 
 impl DaemonState {
@@ -301,6 +322,7 @@ impl DaemonState {
             dialog_handler_task: None,
             mouse_state: MouseState::default(),
             pending_dialog: None,
+            pending_pointer_release: None,
             auto_dialog: !matches!(
                 env::var("AGENT_BROWSER_NO_AUTO_DIALOG").as_deref(),
                 Ok("1" | "true" | "yes")
@@ -309,11 +331,17 @@ impl DaemonState {
             stream_server: None,
             launch_hash: None,
             engine: env::var("AGENT_BROWSER_ENGINE").unwrap_or_else(|_| "chrome".to_string()),
+            // README documents 25s, intentionally below the CLI's 30s IPC
+            // read timeout so the daemon reports a proper timeout error
+            // instead of the client dying with EAGAIN and retrying.
             default_timeout_ms: env::var("AGENT_BROWSER_DEFAULT_TIMEOUT")
                 .ok()
                 .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(30_000),
+                .unwrap_or(25_000),
             viewport: None,
+            plugin_init_scripts: Vec::new(),
+            active_provider_session: None,
+            confirmed_policy_actions: HashSet::new(),
         }
     }
 
@@ -1102,6 +1130,7 @@ impl DaemonState {
                                         message: dialog_event.message,
                                         url: dialog_event.url,
                                         default_prompt: dialog_event.default_prompt,
+                                        session_id: event.session_id.clone(),
                                     });
                                 }
                             }
@@ -1150,70 +1179,108 @@ impl Drop for DaemonState {
     }
 }
 
-pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
-    let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
-    let id = cmd
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let cmd_start = std::time::Instant::now();
-
-    if let Some(ref server) = state.stream_server {
-        server.broadcast_command(action, &id, cmd);
+fn append_launch_mutator_policy_actions_for(
+    actions: &mut Vec<String>,
+    plugins: &[crate::plugins::PluginConfig],
+) {
+    for plugin in crate::plugins::resolved_plugins_with_capability(
+        plugins,
+        crate::plugins::CAPABILITY_LAUNCH_MUTATE,
+    ) {
+        actions.push(crate::plugins::plugin_policy_action(
+            &plugin.name,
+            crate::plugins::CAPABILITY_LAUNCH_MUTATE,
+        ));
     }
+}
 
-    // Drain and apply pending CDP events (console, errors, screencast frames, target lifecycle)
-    state.drain_cdp_events_background().await;
+fn append_browser_provider_policy_action_for(
+    actions: &mut Vec<String>,
+    provider: &str,
+    plugins: &[crate::plugins::PluginConfig],
+) {
+    if crate::plugins::find_plugin(plugins, provider).is_some_and(|plugin| {
+        crate::plugins::plugin_has_capability(plugin, crate::plugins::CAPABILITY_BROWSER_PROVIDER)
+    }) {
+        actions.push(crate::plugins::plugin_policy_action(
+            provider,
+            crate::plugins::CAPABILITY_BROWSER_PROVIDER,
+        ));
+    }
+}
 
-    // Hot-reload and check action policy
-    if let Some(ref mut policy) = state.policy {
-        let _ = policy.reload();
-        match policy.check(action) {
-            PolicyResult::Allow => {}
-            PolicyResult::Deny(reason) => {
-                return error_response(
-                    &id,
-                    &format!("Action '{}' denied by policy: {}", action, reason),
-                );
-            }
-            PolicyResult::RequiresConfirmation => {
-                state.pending_confirmation = Some(PendingConfirmation {
-                    action: action.to_string(),
-                    cmd: cmd.clone(),
-                });
-                return json!({
-                    "id": id,
-                    "success": true,
-                    "data": { "confirmation_required": true, "action": action },
-                });
-            }
+fn append_credential_policy_action_for(
+    actions: &mut Vec<String>,
+    provider: &str,
+    plugins: &[crate::plugins::PluginConfig],
+) {
+    if crate::plugins::find_plugin(plugins, provider).is_some_and(|plugin| {
+        crate::plugins::plugin_has_capability(plugin, crate::plugins::CAPABILITY_CREDENTIAL_READ)
+    }) {
+        actions.push(crate::plugins::plugin_policy_action(
+            provider,
+            crate::plugins::CAPABILITY_CREDENTIAL_READ,
+        ));
+    }
+}
+
+fn plugins_from_command_or_env(cmd: &Value) -> Vec<crate::plugins::PluginConfig> {
+    cmd.get("plugins")
+        .and_then(|v| serde_json::from_value::<Vec<crate::plugins::PluginConfig>>(v.clone()).ok())
+        .unwrap_or_else(crate::plugins::plugins_from_env)
+}
+
+fn remember_active_provider_session(
+    state: &mut DaemonState,
+    session: Option<providers::ProviderSession>,
+    plugins: &[crate::plugins::PluginConfig],
+) {
+    state.active_provider_session = session.map(|session| ActiveProviderSession {
+        session,
+        plugins: plugins.to_vec(),
+    });
+}
+
+async fn close_active_provider_session(state: &mut DaemonState) {
+    if let Some(active) = state.active_provider_session.take() {
+        providers::close_provider_session_with_plugins(&active.session, &active.plugins).await;
+    }
+}
+
+pub(crate) async fn close_current_browser(state: &mut DaemonState) -> Result<(), String> {
+    let close_error = if let Some(mut mgr) = state.browser.take() {
+        mgr.close().await.err()
+    } else {
+        None
+    };
+
+    close_active_provider_session(state).await;
+    state.launch_hash = None;
+    state.screencasting = false;
+    state.reset_input_state();
+    state.update_stream_client().await;
+
+    if let Some(err) = close_error {
+        return Err(err);
+    }
+    Ok(())
+}
+
+fn provider_plugin_launch_options_from_command(cmd: &Value) -> Value {
+    let mut options = serde_json::Map::new();
+    if let Some(headless) = cmd.get("headless").and_then(|v| v.as_bool()) {
+        options.insert("headed".to_string(), json!(!headless));
+    }
+    for key in ["engine", "userAgent", "colorScheme"] {
+        if let Some(value) = cmd.get(key) {
+            options.insert(key.to_string(), value.clone());
         }
     }
+    Value::Object(options)
+}
 
-    // Check AGENT_BROWSER_CONFIRM_ACTIONS (category-based, independent of policy file)
-    if action != "confirm" && action != "deny" {
-        if let Some(ref ca) = state.confirm_actions {
-            if ca.requires_confirmation(action) {
-                state.pending_confirmation = Some(PendingConfirmation {
-                    action: action.to_string(),
-                    cmd: cmd.clone(),
-                });
-                return json!({
-                    "id": id,
-                    "success": true,
-                    "data": {
-                        "confirmation_required": true,
-                        "confirmation_id": id,
-                        "action": action,
-                    },
-                });
-            }
-        }
-    }
-
-    let skip_launch = matches!(
+fn skip_launch_action(action: &str) -> bool {
+    matches!(
         action,
         "" | "launch"
             | "close"
@@ -1226,6 +1293,8 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             | "auth_show"
             | "auth_delete"
             | "auth_list"
+            | "confirm"
+            | "deny"
             | "state_list"
             | "state_show"
             | "state_clear"
@@ -1235,28 +1304,171 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             | "stream_enable"
             | "stream_disable"
             | "stream_status"
-    );
-    if !skip_launch {
+    )
+}
+
+fn policy_actions_for_command(
+    cmd: &Value,
+    action: &str,
+    needs_implicit_launch: bool,
+) -> Vec<String> {
+    let mut actions = vec![action.to_string()];
+    if action == "auth_login" {
+        if let Some(provider) = cmd.get("credentialProvider").and_then(|v| v.as_str()) {
+            let plugins = plugins_from_command_or_env(cmd);
+            append_credential_policy_action_for(&mut actions, provider, &plugins);
+        }
+    }
+    if action == "launch" {
+        let plugins = plugins_from_command_or_env(cmd);
+        if let Some(provider) = cmd.get("provider").and_then(|v| v.as_str()) {
+            append_browser_provider_policy_action_for(&mut actions, provider, &plugins);
+        }
+
+        let local_launch = cmd.get("provider").is_none()
+            && cmd.get("cdpUrl").is_none()
+            && cmd.get("cdpPort").is_none()
+            && !cmd
+                .get("autoConnect")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        if local_launch {
+            append_launch_mutator_policy_actions_for(&mut actions, &plugins);
+        }
+    } else if !skip_launch_action(action) && needs_implicit_launch {
+        let plugins = plugins_from_command_or_env(cmd);
+        let provider_launch = env::var("AGENT_BROWSER_PROVIDER")
+            .ok()
+            .map(|provider| provider.to_lowercase())
+            .filter(|provider| !provider.is_empty() && provider != "ios" && provider != "safari");
+        if let Some(provider) = provider_launch {
+            append_browser_provider_policy_action_for(&mut actions, &provider, &plugins);
+        } else {
+            append_launch_mutator_policy_actions_for(&mut actions, &plugins);
+        }
+    }
+    actions
+}
+
+pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
+    let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    let id = cmd
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let cmd_start = std::time::Instant::now();
+
+    if let Some(ref server) = state.stream_server {
+        let mut broadcast_cmd;
+        let cmd_for_broadcast = if cmd.get("plugins").is_some() {
+            broadcast_cmd = cmd.clone();
+            if let Some(obj) = broadcast_cmd.as_object_mut() {
+                obj.remove("plugins");
+            }
+            &broadcast_cmd
+        } else {
+            cmd
+        };
+        server.broadcast_command(action, &id, cmd_for_broadcast);
+    }
+
+    // Drain and apply pending CDP events (console, errors, screencast frames, target lifecycle)
+    state.drain_cdp_events_background().await;
+
+    // Keep element resolution in sync with the `frame` selection (see
+    // element::set_active_frame for why this is mirrored).
+    super::element::set_active_frame(state.active_frame_id.as_deref());
+
+    let skip_launch = skip_launch_action(action);
+    let needs_launch = if !skip_launch {
         // Check if existing connection is stale and needs re-launch.
-        // First do a fast, non-blocking check: did the browser process crash/exit?
-        // This avoids a 3-second CDP timeout when Chrome is already dead.
-        let needs_launch = if let Some(ref mut mgr) = state.browser {
+        // This must happen before policy evaluation so plugin capability
+        // actions are gated when recovery relaunches would invoke plugins.
+        if let Some(ref mut mgr) = state.browser {
             mgr.has_process_exited() || !mgr.is_connection_alive().await
         } else {
             true
-        };
+        }
+    } else {
+        false
+    };
+    let policy_actions = policy_actions_for_command(cmd, action, needs_launch);
 
-        if needs_launch {
-            if state.browser.is_some() {
-                if let Some(ref mut mgr) = state.browser {
-                    let _ = mgr.close().await;
+    // Hot-reload and check action policy
+    if let Some(ref mut policy) = state.policy {
+        let _ = policy.reload();
+        let mut confirmation_required: Option<String> = None;
+        for policy_action in &policy_actions {
+            match policy.check(policy_action) {
+                PolicyResult::Allow => {}
+                PolicyResult::Deny(reason) => {
+                    return error_response(
+                        &id,
+                        &format!("Action '{}' denied by policy: {}", policy_action, reason),
+                    );
                 }
-                state.browser = None;
-                state.screencasting = false;
-                state.reset_input_state();
-                state.update_stream_client().await;
+                PolicyResult::RequiresConfirmation => {
+                    if !state.confirmed_policy_actions.contains(policy_action)
+                        && confirmation_required.is_none()
+                    {
+                        confirmation_required = Some(policy_action.to_string());
+                    }
+                }
             }
-            if let Err(e) = auto_launch(state).await {
+        }
+        if let Some(policy_action) = confirmation_required {
+            state.pending_confirmation = Some(PendingConfirmation {
+                action: policy_action.clone(),
+                cmd: cmd.clone(),
+                approved_actions: state.confirmed_policy_actions.iter().cloned().collect(),
+            });
+            return json!({
+                "id": id,
+                "success": true,
+                "data": {
+                    "confirmation_required": true,
+                    "confirmation_id": id,
+                    "action": policy_action
+                },
+            });
+        }
+    }
+
+    // Check AGENT_BROWSER_CONFIRM_ACTIONS (category-based, independent of policy file)
+    if action != "confirm" && action != "deny" {
+        if let Some(ref ca) = state.confirm_actions {
+            for policy_action in &policy_actions {
+                if state.confirmed_policy_actions.contains(policy_action) {
+                    continue;
+                }
+                if ca.requires_confirmation(policy_action) {
+                    state.pending_confirmation = Some(PendingConfirmation {
+                        action: policy_action.to_string(),
+                        cmd: cmd.clone(),
+                        approved_actions: state.confirmed_policy_actions.iter().cloned().collect(),
+                    });
+                    return json!({
+                        "id": id,
+                        "success": true,
+                        "data": {
+                            "confirmation_required": true,
+                            "confirmation_id": id,
+                            "action": policy_action,
+                        },
+                    });
+                }
+            }
+        }
+    }
+
+    if !skip_launch {
+        if needs_launch {
+            if state.browser.is_some() || state.active_provider_session.is_some() {
+                let _ = close_current_browser(state).await;
+            }
+            if let Err(e) = auto_launch(state, plugins_from_command_or_env(cmd)).await {
                 return error_response(&id, &format!("Auto-launch failed: {}", e));
             }
         }
@@ -1279,6 +1491,47 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                 action
             ),
         );
+    }
+
+    // A pending confirm/prompt dialog blocks the renderer's main thread, so
+    // any command that touches the page would hang until the client read
+    // timeout. Fail fast with instructions instead. Actions in skip_launch
+    // never touch the page; dialog/screenshot/url/title are browser-side.
+    // Only a dialog on the ACTIVE tab blocks: one on a background tab leaves
+    // the active tab's renderer responsive.
+    if let Some(ref dialog) = state.pending_dialog {
+        let active_session = state
+            .browser
+            .as_ref()
+            .and_then(|m| m.active_session_id().ok().map(|s| s.to_string()));
+        let on_active_tab = match (&dialog.session_id, &active_session) {
+            (Some(dialog_sid), Some(active_sid)) => dialog_sid == active_sid,
+            // No session on the event = top-level page dialog; no browser = be safe.
+            _ => true,
+        };
+        // Tab and session management must stay usable: switching or closing
+        // tabs is exactly how an agent escapes a tab blocked by a dialog.
+        let safe_during_dialog = skip_launch
+            || matches!(
+                action,
+                "dialog"
+                    | "screenshot"
+                    | "url"
+                    | "title"
+                    | "tab_list"
+                    | "tab_new"
+                    | "tab_switch"
+                    | "tab_close"
+            );
+        if on_active_tab && !safe_during_dialog {
+            return error_response(
+                &id,
+                &format!(
+                    "A JavaScript {} dialog is blocking the page: \"{}\". Resolve it with `dialog accept` or `dialog dismiss`, then retry `{}`.",
+                    dialog.dialog_type, dialog.message, action
+                ),
+            );
+        }
     }
 
     let result = match action {
@@ -1452,6 +1705,10 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         Err(e) => error_response(&id, &super::browser::to_ai_friendly_error(&e)),
     };
 
+    // Re-drain so a dialog opened by THIS command is reflected in the warning
+    // below; events are otherwise only drained at the start of a command.
+    state.drain_cdp_events_background().await;
+
     // Auto-report pending JavaScript dialog so agents know why commands may hang
     if action != "dialog" {
         if let Some(ref dialog) = state.pending_dialog {
@@ -1512,8 +1769,12 @@ async fn connect_auto_with_fresh_tab() -> Result<BrowserManager, String> {
     Ok(mgr)
 }
 
-async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
+async fn auto_launch(
+    state: &mut DaemonState,
+    plugins: Vec<crate::plugins::PluginConfig>,
+) -> Result<(), String> {
     let mut options = launch_options_from_env();
+    state.plugin_init_scripts.clear();
 
     // Use the stream server's viewport dimensions for --window-size so the
     // content area matches the desired viewport from the start.
@@ -1574,7 +1835,7 @@ async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
         let p = provider.to_lowercase();
         // ios/safari are device providers handled via explicit launch command
         if !p.is_empty() && p != "ios" && p != "safari" {
-            let conn = providers::connect_provider(&p).await?;
+            let conn = providers::connect_provider_with_plugins(&p, &plugins).await?;
             let ws_headers = if p == "agentcore" {
                 providers::take_agentcore_ws_headers()
             } else {
@@ -1591,6 +1852,7 @@ async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
                 Ok(mgr) => {
                     state.reset_input_state();
                     state.browser = Some(mgr);
+                    remember_active_provider_session(state, conn.session.clone(), &plugins);
                     state.subscribe_to_browser_events();
                     state.start_fetch_handler();
                     state.start_dialog_handler();
@@ -1603,7 +1865,7 @@ async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
                 }
                 Err(e) => {
                     if let Some(ref ps) = conn.session {
-                        providers::close_provider_session(ps).await;
+                        providers::close_provider_session_with_plugins(ps, &plugins).await;
                     }
                     return Err(format!("Provider '{}' connection failed: {}", p, e));
                 }
@@ -1611,7 +1873,9 @@ async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
         }
     }
 
-    let hash = launch_hash(&options);
+    apply_launch_mutator_plugins(state, &mut options, plugins).await?;
+    write_extensions_file_from_paths(&state.session_id, options.extensions.as_deref());
+    let hash = launch_hash(&options, &state.plugin_init_scripts);
     let mgr = BrowserManager::launch(options, engine.as_deref()).await?;
     state.reset_input_state();
     state.browser = Some(mgr);
@@ -1681,6 +1945,52 @@ async fn apply_launch_init_scripts(state: &DaemonState) {
             }
         }
     }
+
+    for source in &state.plugin_init_scripts {
+        let _ = mgr.add_script_to_evaluate(source).await;
+    }
+}
+
+async fn apply_launch_mutator_plugins(
+    state: &mut DaemonState,
+    options: &mut LaunchOptions,
+    plugins: Vec<crate::plugins::PluginConfig>,
+) -> Result<(), String> {
+    state.plugin_init_scripts.clear();
+    if plugins.is_empty() {
+        return Ok(());
+    }
+
+    let request = json!({
+        "session": state.session_id,
+        "launchOptions": {
+            "headless": options.headless,
+            "engine": env::var("AGENT_BROWSER_ENGINE").unwrap_or_else(|_| "chrome".to_string()),
+            "args": options.args.clone(),
+            "extensions": options.extensions.clone(),
+            "userAgent": options.user_agent.clone(),
+            "colorScheme": options.color_scheme.clone(),
+            "downloadPath": options.download_path.clone(),
+            "hideScrollbars": options.hide_scrollbars,
+            "allowFileAccess": options.allow_file_access,
+        }
+    });
+
+    for mutation in crate::plugins::launch_mutations_from_plugins(&plugins, request).await? {
+        options.args.extend(mutation.args);
+        if !mutation.extensions.is_empty() {
+            options
+                .extensions
+                .get_or_insert_with(Vec::new)
+                .extend(mutation.extensions);
+        }
+        if let Some(user_agent) = mutation.user_agent {
+            options.user_agent = Some(user_agent);
+        }
+        state.plugin_init_scripts.extend(mutation.init_scripts);
+    }
+
+    Ok(())
 }
 
 fn launch_options_from_env() -> LaunchOptions {
@@ -1722,9 +2032,22 @@ fn launch_options_from_env() -> LaunchOptions {
             .unwrap_or(false),
         color_scheme: env::var("AGENT_BROWSER_COLOR_SCHEME").ok(),
         download_path: env::var("AGENT_BROWSER_DOWNLOAD_PATH").ok(),
+        hide_scrollbars: hide_scrollbars_from_env(),
         viewport_size: None,
         use_real_keychain: false,
     }
+}
+
+fn hide_scrollbars_from_env() -> bool {
+    env::var("AGENT_BROWSER_HIDE_SCROLLBARS")
+        .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no" | ""))
+        .unwrap_or(true)
+}
+
+fn hide_scrollbars_from_launch_cmd(cmd: &Value) -> bool {
+    cmd.get("hideScrollbars")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(hide_scrollbars_from_env)
 }
 
 async fn try_auto_restore_state(state: &mut DaemonState) {
@@ -1758,23 +2081,9 @@ async fn load_storage_state(state: &DaemonState, path: &Option<String>) -> Resul
 }
 
 async fn rollback_failed_launch(state: &mut DaemonState) -> Result<(), String> {
-    let close_error = if let Some(mut mgr) = state.browser.take() {
-        mgr.close().await.err()
-    } else {
-        None
-    };
-
-    state.launch_hash = None;
-    state.screencasting = false;
-    state.reset_input_state();
+    let close_result = close_current_browser(state).await;
     state.ref_map.clear();
-    state.update_stream_client().await;
-
-    if let Some(err) = close_error {
-        return Err(err);
-    }
-
-    Ok(())
+    close_result
 }
 
 async fn load_storage_state_or_rollback(
@@ -1814,6 +2123,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         .get("autoConnect")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let provider_name = cmd.get("provider").and_then(|v| v.as_str());
 
     let extensions: Option<Vec<String>> =
         cmd.get("extensions").and_then(|v| v.as_array()).map(|arr| {
@@ -1824,7 +2134,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
     let storage_state = cmd.get("storageState").and_then(|v| v.as_str());
     let storage_state_owned = storage_state.map(|s| s.to_string());
 
-    let launch_options = LaunchOptions {
+    let mut launch_options = LaunchOptions {
         headless,
         executable_path: cmd
             .get("executablePath")
@@ -1890,11 +2200,20 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
             .get("downloadPath")
             .and_then(|v| v.as_str())
             .map(String::from),
+        hide_scrollbars: hide_scrollbars_from_launch_cmd(cmd),
         viewport_size: None,
         use_real_keychain: false,
     };
 
-    let new_hash = launch_hash(&launch_options);
+    state.plugin_init_scripts.clear();
+    let local_launch =
+        cdp_url.is_none() && cdp_port.is_none() && !auto_connect && provider_name.is_none();
+    if local_launch {
+        apply_launch_mutator_plugins(state, &mut launch_options, plugins_from_command_or_env(cmd))
+            .await?;
+    }
+
+    let new_hash = launch_hash(&launch_options, &state.plugin_init_scripts);
 
     // Hash comparison and fast process-exit check are evaluated before the
     // async is_connection_alive to skip the expensive CDP liveness probe
@@ -1914,13 +2233,8 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
     };
 
     if needs_relaunch {
-        if let Some(ref mut b) = state.browser {
-            b.close().await?;
-            state.browser = None;
-            state.launch_hash = None;
-            state.screencasting = false;
-            state.reset_input_state();
-            state.update_stream_client().await;
+        if state.browser.is_some() || state.active_provider_session.is_some() {
+            close_current_browser(state).await?;
         }
     } else {
         load_storage_state(state, &storage_state_owned).await?;
@@ -1974,7 +2288,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         return Ok(json!({ "launched": true }));
     }
 
-    if let Some(provider) = cmd.get("provider").and_then(|v| v.as_str()) {
+    if let Some(provider) = provider_name {
         match provider.to_lowercase().as_str() {
             "ios" => {
                 return launch_ios(cmd, state).await;
@@ -1983,7 +2297,14 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                 return launch_safari(cmd, state).await;
             }
             _ => {
-                let conn = providers::connect_provider(provider).await?;
+                let command_plugins = plugins_from_command_or_env(cmd);
+                let conn = providers::connect_provider_with_plugins_and_options(
+                    provider,
+                    &command_plugins,
+                    Some(provider_plugin_launch_options_from_command(cmd)),
+                )
+                .await?;
+                let provider_metadata = conn.metadata.clone();
 
                 let ws_headers = if provider.eq_ignore_ascii_case("agentcore") {
                     providers::take_agentcore_ws_headers()
@@ -2002,6 +2323,11 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                     Ok(mgr) => {
                         state.reset_input_state();
                         state.browser = Some(mgr);
+                        remember_active_provider_session(
+                            state,
+                            conn.session.clone(),
+                            &command_plugins,
+                        );
                         state.subscribe_to_browser_events();
                         state.start_fetch_handler();
                         state.start_dialog_handler();
@@ -2019,11 +2345,20 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                             }));
                         }
 
+                        if let Some(metadata) = provider_metadata {
+                            return Ok(json!({
+                                "launched": true,
+                                "provider": provider,
+                                "providerMetadata": metadata
+                            }));
+                        }
+
                         return Ok(json!({ "launched": true, "provider": provider }));
                     }
                     Err(e) => {
                         if let Some(ref ps) = conn.session {
-                            providers::close_provider_session(ps).await;
+                            providers::close_provider_session_with_plugins(ps, &command_plugins)
+                                .await;
                         }
                         return Err(e);
                     }
@@ -2059,7 +2394,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
 
     state.engine = engine.as_deref().unwrap_or("chrome").to_string();
     write_engine_file(&state.session_id, &state.engine);
-    write_extensions_file(&state.session_id);
+    write_extensions_file_from_paths(&state.session_id, launch_options.extensions.as_deref());
     state.reset_input_state();
     state.browser = Some(BrowserManager::launch(launch_options, engine.as_deref()).await?);
     state.launch_hash = Some(new_hash);
@@ -2403,14 +2738,7 @@ async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
             }
         }
     }
-    if let Some(ref mut mgr) = state.browser {
-        mgr.close().await?;
-    }
-    state.browser = None;
-    state.launch_hash = None;
-    state.screencasting = false;
-    state.reset_input_state();
-    state.update_stream_client().await;
+    close_current_browser(state).await?;
 
     // Stop background Fetch handler
     if let Some(task) = state.fetch_handler_task.take() {
@@ -2671,7 +2999,7 @@ async fn handle_click(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
     let button = cmd.get("button").and_then(|v| v.as_str()).unwrap_or("left");
     let click_count = cmd.get("clickCount").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
 
-    interaction::click(
+    let result = interaction::click(
         &mgr.client,
         &session_id,
         &state.ref_map,
@@ -2682,6 +3010,10 @@ async fn handle_click(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
     )
     .await?;
 
+    if result.dialog_opened {
+        state.pending_pointer_release = result.pending_release;
+        return Ok(json!({ "clicked": selector, "dialogOpened": true }));
+    }
     Ok(json!({ "clicked": selector }))
 }
 
@@ -2693,7 +3025,7 @@ async fn handle_dblclick(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
         .and_then(|v| v.as_str())
         .ok_or("Missing 'selector' parameter")?;
 
-    interaction::dblclick(
+    let result = interaction::dblclick(
         &mgr.client,
         &session_id,
         &state.ref_map,
@@ -2701,6 +3033,10 @@ async fn handle_dblclick(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
         &state.iframe_sessions,
     )
     .await?;
+    if result.dialog_opened {
+        state.pending_pointer_release = result.pending_release;
+        return Ok(json!({ "clicked": selector, "dialogOpened": true }));
+    }
     Ok(json!({ "clicked": selector }))
 }
 
@@ -2958,7 +3294,29 @@ async fn handle_wait(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
             .get("state")
             .and_then(|v| v.as_str())
             .unwrap_or("visible");
-        wait_for_selector(&mgr.client, &session_id, selector, state_str, timeout_ms).await?;
+        // Honor an active `frame <sel>` selection, like element resolution does.
+        match state.active_frame_id.as_deref() {
+            Some(frame_id) => match state.iframe_sessions.get(frame_id) {
+                Some(frame_session) => {
+                    wait_for_selector(&mgr.client, frame_session, selector, state_str, timeout_ms)
+                        .await?
+                }
+                None => {
+                    wait_for_selector_in_frame(
+                        &mgr.client,
+                        &session_id,
+                        frame_id,
+                        selector,
+                        state_str,
+                        timeout_ms,
+                    )
+                    .await?
+                }
+            },
+            None => {
+                wait_for_selector(&mgr.client, &session_id, selector, state_str, timeout_ms).await?
+            }
+        }
         return Ok(json!({ "waited": "selector", "selector": selector }));
     }
 
@@ -3243,6 +3601,72 @@ async fn wait_for_function(
 ) -> Result<(), String> {
     let check_fn = format!("!!({})", fn_str);
     poll_until_true(client, session_id, &check_fn, timeout_ms).await
+}
+
+/// wait_for_selector inside a same-process iframe selected via `frame <sel>`:
+/// polls through the owner element's contentDocument, which stays correct
+/// even if the frame navigates (the getter re-resolves every poll).
+async fn wait_for_selector_in_frame(
+    client: &super::cdp::client::CdpClient,
+    session_id: &str,
+    frame_id: &str,
+    selector: &str,
+    state: &str,
+    timeout_ms: u64,
+) -> Result<(), String> {
+    let owner_object_id =
+        super::element::frame_owner_object_id(client, session_id, frame_id).await?;
+    let sel = serde_json::to_string(selector).unwrap_or_default();
+    let check = match state {
+        "attached" => format!("!!doc.querySelector({sel})"),
+        "detached" => format!("!doc.querySelector({sel})"),
+        "hidden" => format!(
+            r#"(() => {{
+                const el = doc.querySelector({sel});
+                if (!el) return true;
+                const s = doc.defaultView.getComputedStyle(el);
+                return s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0;
+            }})()"#,
+        ),
+        _ => format!(
+            r#"(() => {{
+                const el = doc.querySelector({sel});
+                if (!el) return false;
+                const r = el.getBoundingClientRect();
+                const s = doc.defaultView.getComputedStyle(el);
+                return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+            }})()"#,
+        ),
+    };
+    let function = format!(
+        "function() {{ const doc = this.contentDocument; if (!doc) return false; return {check}; }}",
+    );
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+    loop {
+        let result = client
+            .send_command(
+                "Runtime.callFunctionOn",
+                Some(json!({
+                    "objectId": owner_object_id,
+                    "functionDeclaration": function,
+                    "returnByValue": true,
+                })),
+                Some(session_id),
+            )
+            .await?;
+        let satisfied = result
+            .get("result")
+            .and_then(|r| r.get("value"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if satisfied {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!("Wait timed out after {}ms", timeout_ms));
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
 }
 
 async fn poll_until_true(
@@ -4201,18 +4625,42 @@ async fn handle_recording_restart(cmd: &Value, state: &mut DaemonState) -> Resul
         .get("path")
         .and_then(|v| v.as_str())
         .ok_or("Missing 'path' parameter")?;
+    let recording_url = cmd
+        .get("url")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
 
     let _ = state.stop_recording_task().await;
-    let result = recording::recording_restart(&mut state.recording_state, path)?;
+    let previous_path = if state.recording_state.active {
+        recording::recording_stop(&mut state.recording_state)
+            .ok()
+            .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from))
+    } else {
+        None
+    };
 
-    if let Some(ref browser) = state.browser {
+    let recording_target = if let Some(ref mut browser) = state.browser {
+        if let Some(url) = recording_url {
+            browser.navigate(&url, WaitUntil::Load).await?;
+        }
         let session_id = browser.active_session_id()?.to_string();
-        state
-            .start_recording_task(browser.client.clone(), session_id)
-            .await?;
+        Some((browser.client.clone(), session_id))
+    } else {
+        None
+    };
+
+    recording::recording_start(&mut state.recording_state, path)?;
+
+    if let Some((client, session_id)) = recording_target {
+        state.start_recording_task(client, session_id).await?;
     }
 
-    Ok(result)
+    Ok(json!({
+        "restarted": true,
+        "previousPath": previous_path,
+        "path": path,
+    }))
 }
 
 async fn handle_pdf(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -4641,8 +5089,21 @@ async fn handle_dialog(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         .unwrap_or(true);
     let prompt_text = cmd.get("promptText").and_then(|v| v.as_str());
 
-    mgr.handle_dialog(accept, prompt_text).await?;
+    // Clear tracked state even if Chrome reports no dialog (e.g. it was
+    // already resolved and the closed event was missed); otherwise a stale
+    // pending_dialog would make every page command fail fast forever.
+    let result = mgr.handle_dialog(accept, prompt_text).await;
     state.pending_dialog = None;
+    result?;
+
+    // If a click's mousedown opened this dialog, the button is still logically
+    // down. Release it now that the page is unblocked so the next click does
+    // not register as a drag or double-click.
+    if let Some(release) = state.pending_pointer_release.take() {
+        if let Some(ref mgr) = state.browser {
+            let _ = interaction::dispatch_pending_release(&mgr.client, &release).await;
+        }
+    }
     Ok(json!({ "handled": true, "accepted": accept }))
 }
 
@@ -4975,14 +5436,10 @@ async fn handle_vitals(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         "hydratedComponents": hydrated_components,
     });
 
-    let return_json = cmd.get("json").and_then(|v| v.as_bool()).unwrap_or(false);
-    if return_json {
-        Ok(data_value)
-    } else {
-        let data: react::VitalsData = serde_json::from_value(data_value.clone())
-            .map_err(|e| format!("Failed to parse vitals data: {}", e))?;
-        Ok(json!({ "report": react::format_vitals_report(&data) }))
-    }
+    // Always return the structured payload. The CLI output layer renders a
+    // compact text summary in normal mode, while `--json` exposes these exact
+    // fields for automation.
+    Ok(data_value)
 }
 
 async fn handle_pushstate(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -5223,6 +5680,25 @@ fn write_extensions_file(session_id: &str) {
         }
     }
     let _ = fs::remove_file(extensions_file_path(session_id));
+}
+
+fn write_extensions_file_from_paths(session_id: &str, extensions: Option<&[String]>) {
+    let Some(paths) = extensions else {
+        write_extensions_file(session_id);
+        return;
+    };
+
+    let joined = paths
+        .iter()
+        .map(|path| path.trim())
+        .filter(|path| !path.is_empty())
+        .collect::<Vec<_>>()
+        .join(",");
+    if joined.is_empty() {
+        let _ = fs::remove_file(extensions_file_path(session_id));
+    } else {
+        let _ = fs::write(extensions_file_path(session_id), joined);
+    }
 }
 
 fn remove_extensions_file(session_id: &str) {
@@ -5616,7 +6092,7 @@ async fn execute_subaction(
 
     match subaction {
         "click" => {
-            interaction::click(
+            let result = interaction::click(
                 &mgr.client,
                 &session_id,
                 &state.ref_map,
@@ -5626,6 +6102,10 @@ async fn execute_subaction(
                 &state.iframe_sessions,
             )
             .await?;
+            if result.dialog_opened {
+                state.pending_pointer_release = result.pending_release;
+                return Ok(json!({ "clicked": selector, "dialogOpened": true }));
+            }
             Ok(json!({ "clicked": selector }))
         }
         "fill" => {
@@ -5802,17 +6282,38 @@ async fn handle_semantic_locator(
     };
 
     let query = match strategy {
-        "label" => format!(
-            r#"(() => {{
-                const label = Array.from(document.querySelectorAll('label')).find(el => {match_fn});
-                if (!label) return false;
-                const forId = label.getAttribute('for');
-                const target = forId ? document.getElementById(forId) : label.querySelector('input,select,textarea');
-                if (target) {{ target.setAttribute('data-agent-browser-located', 'true'); return true; }}
+        // Like Playwright's getByLabel: match <label> associations AND
+        // aria-label / aria-labelledby. Icon buttons and custom controls
+        // are usually labelled via aria-label only.
+        "label" => {
+            let value_json = serde_json::to_string(value).unwrap_or_default();
+            let matches_fn = if exact {
+                format!("(s) => !!s && s.trim() === {value_json}")
+            } else {
+                format!("(s) => !!s && s.includes({value_json})")
+            };
+            format!(
+                r#"(() => {{
+                const matches = {matches_fn};
+                const label = Array.from(document.querySelectorAll('label')).find(el => matches(el.textContent));
+                if (label) {{
+                    const forId = label.getAttribute('for');
+                    const target = forId ? document.getElementById(forId) : label.querySelector('input,select,textarea');
+                    if (target) {{ target.setAttribute('data-agent-browser-located', 'true'); return true; }}
+                }}
+                const aria = Array.from(document.querySelectorAll('[aria-label]')).find(el => matches(el.getAttribute('aria-label')));
+                if (aria) {{ aria.setAttribute('data-agent-browser-located', 'true'); return true; }}
+                const referenced = Array.from(document.querySelectorAll('[aria-labelledby]')).find(el => {{
+                    const text = el.getAttribute('aria-labelledby').split(/\s+/)
+                        .map(id => {{ const r = document.getElementById(id); return r ? r.textContent : ''; }})
+                        .join(' ');
+                    return matches(text);
+                }});
+                if (referenced) {{ referenced.setAttribute('data-agent-browser-located', 'true'); return true; }}
                 return false;
             }})()"#,
-            match_fn = match_fn,
-        ),
+            )
+        }
         "placeholder" => format!(
             r#"(() => {{
                 const el = document.querySelector('input[placeholder={val}], textarea[placeholder={val}]');
@@ -6841,6 +7342,69 @@ fn browser_metadata_from_version(version: &Value) -> Option<Value> {
 // Fetch interception resolver (domain filter + routes + origin headers)
 // ---------------------------------------------------------------------------
 
+fn collapse_wildcards(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    let mut last_was_star = false;
+    for ch in pattern.chars() {
+        if ch == '*' {
+            if !last_was_star {
+                out.push(ch);
+            }
+            last_was_star = true;
+        } else {
+            out.push(ch);
+            last_was_star = false;
+        }
+    }
+    out
+}
+
+fn route_url_matches(pattern: &str, url: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if !pattern.contains('*') {
+        return url.contains(pattern);
+    }
+
+    let pattern = collapse_wildcards(pattern);
+    let parts: Vec<&str> = pattern.split('*').filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() {
+        return true;
+    }
+
+    let anchored_start = !pattern.starts_with('*');
+    let anchored_end = !pattern.ends_with('*');
+    let mut pos = 0usize;
+    let mut idx = 0usize;
+
+    if anchored_start {
+        let first = parts[0];
+        if !url.starts_with(first) {
+            return false;
+        }
+        pos = first.len();
+        idx = 1;
+    }
+
+    while idx < parts.len() {
+        let part = parts[idx];
+        let Some(found) = url[pos..].find(part) else {
+            return false;
+        };
+        pos += found + part.len();
+        idx += 1;
+    }
+
+    if anchored_end {
+        if let Some(last) = parts.last() {
+            return url.ends_with(last);
+        }
+    }
+
+    true
+}
+
 async fn resolve_fetch_paused(
     client: &CdpClient,
     domain_filter: Option<&DomainFilter>,
@@ -6923,18 +7487,7 @@ async fn resolve_fetch_paused(
 
     // Route matching
     for route in routes {
-        let url_matches = if route.url_pattern == "*" {
-            true
-        } else if route.url_pattern.contains('*') {
-            let parts: Vec<&str> = route.url_pattern.split('*').collect();
-            if parts.len() == 2 {
-                paused.url.starts_with(parts[0]) && paused.url.ends_with(parts[1])
-            } else {
-                paused.url.contains(&route.url_pattern)
-            }
-        } else {
-            paused.url.contains(&route.url_pattern)
-        };
+        let url_matches = route_url_matches(&route.url_pattern, &paused.url);
 
         let resource_type_matches = route.resource_types.is_empty()
             || route
@@ -7044,7 +7597,7 @@ async fn build_fetch_patterns(state: &DaemonState) -> Vec<Value> {
     let routes = state.routes.read().await;
     let mut patterns: Vec<Value> = routes
         .iter()
-        .map(|r| json!({ "urlPattern": r.url_pattern }))
+        .map(|r| json!({ "urlPattern": collapse_wildcards(&r.url_pattern) }))
         .collect();
     let has_domain_filter = state.domain_filter.read().await.is_some();
     let has_origin_headers = !state.origin_headers.read().await.is_empty();
@@ -7066,6 +7619,40 @@ async fn build_fetch_enable_params(state: &DaemonState, patterns: Vec<Value>) ->
     } else {
         json!({ "patterns": patterns })
     }
+}
+
+fn parse_route_response(cmd: &Value) -> Option<RouteResponse> {
+    cmd.get("response")
+        .and_then(|v| {
+            if v.is_null() {
+                return None;
+            }
+            Some(RouteResponse {
+                status: v.get("status").and_then(|s| s.as_u64()).map(|s| s as u16),
+                body: v.get("body").and_then(|s| s.as_str()).map(String::from),
+                content_type: v
+                    .get("contentType")
+                    .and_then(|s| s.as_str())
+                    .map(String::from),
+                headers: v.get("headers").and_then(|h| {
+                    h.as_object().map(|m| {
+                        m.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect()
+                    })
+                }),
+            })
+        })
+        .or_else(|| {
+            cmd.get("body")
+                .and_then(|v| v.as_str())
+                .map(|body| RouteResponse {
+                    status: None,
+                    body: Some(body.to_string()),
+                    content_type: None,
+                    headers: None,
+                })
+        })
 }
 
 async fn handle_route(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -7100,26 +7687,7 @@ async fn handle_route(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
         })
         .unwrap_or_default();
 
-    let response = cmd.get("response").and_then(|v| {
-        if v.is_null() {
-            return None;
-        }
-        Some(RouteResponse {
-            status: v.get("status").and_then(|s| s.as_u64()).map(|s| s as u16),
-            body: v.get("body").and_then(|s| s.as_str()).map(String::from),
-            content_type: v
-                .get("contentType")
-                .and_then(|s| s.as_str())
-                .map(String::from),
-            headers: v.get("headers").and_then(|h| {
-                h.as_object().map(|m| {
-                    m.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                        .collect()
-                })
-            }),
-        })
-    });
+    let response = parse_route_response(cmd);
 
     {
         let mut routes = state.routes.write().await;
@@ -7432,13 +8000,60 @@ async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value
         .get("name")
         .and_then(|v| v.as_str())
         .ok_or("Missing 'name'")?;
-    let cred = auth::credentials_get_full(name)?;
+    if state.browser.is_none() {
+        return Err("Browser not launched".to_string());
+    }
+    let url_override = cmd.get("url").and_then(|v| v.as_str());
+    let cred = if let Some(provider) = cmd.get("credentialProvider").and_then(|v| v.as_str()) {
+        let command_plugins = cmd
+            .get("plugins")
+            .and_then(|v| {
+                serde_json::from_value::<Vec<crate::plugins::PluginConfig>>(v.clone()).ok()
+            })
+            .unwrap_or_else(crate::plugins::plugins_from_env);
+        let resolved = crate::plugins::resolve_credential_with_plugins(
+            provider,
+            &command_plugins,
+            crate::plugins::CredentialResolveRequest {
+                profile_name: name,
+                item_ref: cmd.get("credentialItem").and_then(|v| v.as_str()),
+                url: url_override,
+            },
+        )
+        .await?;
+        auth::AuthProfile {
+            name: name.to_string(),
+            url: url_override
+                .map(String::from)
+                .or(resolved.url)
+                .unwrap_or_default(),
+            username: resolved.username,
+            password: resolved.password,
+            username_selector: resolved.username_selector,
+            password_selector: resolved.password_selector,
+            submit_selector: resolved.submit_selector,
+            created_at: None,
+            last_login_at: None,
+        }
+    } else {
+        let mut profile = auth::credentials_get_full(name)?;
+        if let Some(url) = url_override {
+            profile.url = url.to_string();
+        }
+        profile
+    };
     if cred.url.is_empty() {
         return Err("Credential has no URL".to_string());
     }
-    let url = cred.url;
-    let username = cred.username;
-    let password = cred.password;
+    let auth::AuthProfile {
+        url,
+        username,
+        password,
+        username_selector: stored_username_selector,
+        password_selector: stored_password_selector,
+        submit_selector: stored_submit_selector,
+        ..
+    } = cred;
 
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
     mgr.navigate(&url, AUTH_LOGIN_WAIT_UNTIL).await?;
@@ -7475,17 +8090,17 @@ async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value
         .get("usernameSelector")
         .and_then(|v| v.as_str())
         .map(String::from)
-        .or(cred.username_selector);
+        .or(stored_username_selector);
     let password_sel = cmd
         .get("passwordSelector")
         .and_then(|v| v.as_str())
         .map(String::from)
-        .or(cred.password_selector);
+        .or(stored_password_selector);
     let submit_sel = cmd
         .get("submitSelector")
         .and_then(|v| v.as_str())
         .map(String::from)
-        .or(cred.submit_selector);
+        .or(stored_submit_selector);
 
     // Find and fill username
     let user_sel = if let Some(s) = username_sel {
@@ -7638,12 +8253,16 @@ async fn handle_confirm(_cmd: &Value, state: &mut DaemonState) -> Result<Value, 
         .take()
         .ok_or("No pending confirmation")?;
 
-    // Temporarily remove policy and confirm_actions to avoid re-triggering confirmation
-    let policy = state.policy.take();
-    let confirm_actions = state.confirm_actions.take();
+    let mut approved_actions = pending.approved_actions.clone();
+    if !approved_actions.iter().any(|a| a == &pending.action) {
+        approved_actions.push(pending.action.clone());
+    }
+    let previous_confirmed = std::mem::replace(
+        &mut state.confirmed_policy_actions,
+        approved_actions.into_iter().collect(),
+    );
     let result = Box::pin(execute_command(&pending.cmd, state)).await;
-    state.policy = policy;
-    state.confirm_actions = confirm_actions;
+    state.confirmed_policy_actions = previous_confirmed;
 
     Ok(json!({ "confirmed": true, "action": pending.action, "result": result }))
 }
@@ -8118,6 +8737,306 @@ mod tests {
         ))
     }
 
+    #[test]
+    fn test_policy_actions_use_command_plugins_for_auto_launch_mutators() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_PROVIDER"]);
+        guard.remove("AGENT_BROWSER_PROVIDER");
+        let cmd = json!({
+            "action": "navigate",
+            "id": "policy-plugin-1",
+            "url": "https://example.com",
+            "plugins": [
+                {
+                    "name": "stealth",
+                    "command": "agent-browser-plugin-stealth",
+                    "capabilities": ["launch.mutate"]
+                }
+            ]
+        });
+
+        let actions = policy_actions_for_command(&cmd, "navigate", true);
+
+        assert_eq!(actions[0], "navigate");
+        assert!(actions.contains(&"plugin:stealth:launch.mutate".to_string()));
+    }
+
+    #[test]
+    fn test_policy_actions_skip_auto_launch_mutators_when_browser_is_healthy() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_PROVIDER"]);
+        guard.remove("AGENT_BROWSER_PROVIDER");
+        let cmd = json!({
+            "action": "navigate",
+            "id": "policy-plugin-healthy",
+            "url": "https://example.com",
+            "plugins": [
+                {
+                    "name": "stealth",
+                    "command": "agent-browser-plugin-stealth",
+                    "capabilities": ["launch.mutate"]
+                }
+            ]
+        });
+
+        let actions = policy_actions_for_command(&cmd, "navigate", false);
+
+        assert_eq!(actions, vec!["navigate".to_string()]);
+    }
+
+    #[test]
+    fn test_policy_actions_use_command_plugins_for_provider_auto_launch() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_PROVIDER"]);
+        guard.set("AGENT_BROWSER_PROVIDER", "browserbox");
+        let cmd = json!({
+            "action": "navigate",
+            "id": "policy-plugin-2",
+            "url": "https://example.com",
+            "plugins": [
+                {
+                    "name": "browserbox",
+                    "command": "agent-browser-plugin-browserbox",
+                    "capabilities": ["browser.provider"]
+                },
+                {
+                    "name": "stealth",
+                    "command": "agent-browser-plugin-stealth",
+                    "capabilities": ["launch.mutate"]
+                }
+            ]
+        });
+
+        let actions = policy_actions_for_command(&cmd, "navigate", true);
+
+        assert!(actions.contains(&"plugin:browserbox:browser.provider".to_string()));
+        assert!(!actions.contains(&"plugin:stealth:launch.mutate".to_string()));
+    }
+
+    #[test]
+    fn test_policy_actions_use_resolved_provider_plugin_capability() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_PROVIDER"]);
+        guard.set("AGENT_BROWSER_PROVIDER", "browserbox");
+        let cmd = json!({
+            "action": "navigate",
+            "id": "policy-plugin-duplicate-provider",
+            "url": "https://example.com",
+            "plugins": [
+                {
+                    "name": "browserbox",
+                    "command": "global-browserbox",
+                    "capabilities": ["browser.provider"]
+                },
+                {
+                    "name": "browserbox",
+                    "command": "project-browserbox",
+                    "capabilities": ["command.run"]
+                }
+            ]
+        });
+
+        let actions = policy_actions_for_command(&cmd, "navigate", true);
+
+        assert_eq!(actions, vec!["navigate".to_string()]);
+    }
+
+    #[test]
+    fn test_policy_actions_use_resolved_credential_plugin_capability() {
+        let cmd = json!({
+            "action": "auth_login",
+            "id": "policy-plugin-duplicate-credential",
+            "name": "example",
+            "credentialProvider": "vault",
+            "plugins": [
+                {
+                    "name": "vault",
+                    "command": "global-vault",
+                    "capabilities": ["credential.read"]
+                },
+                {
+                    "name": "vault",
+                    "command": "project-vault",
+                    "capabilities": ["command.run"]
+                }
+            ]
+        });
+
+        let actions = policy_actions_for_command(&cmd, "auth_login", false);
+
+        assert_eq!(actions, vec!["auth_login".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_policy_denies_plugin_action_before_base_confirmation() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_PROVIDER"]);
+        guard.remove("AGENT_BROWSER_PROVIDER");
+        let dir = tempfile::tempdir().unwrap();
+        let policy_path = dir.path().join("policy.json");
+        fs::write(
+            &policy_path,
+            r#"{"confirm":["navigate"],"deny":["plugin:stealth:launch.mutate"]}"#,
+        )
+        .unwrap();
+
+        let mut state = DaemonState::new();
+        state.policy = Some(ActionPolicy::load(policy_path.to_str().unwrap()).unwrap());
+        let cmd = json!({
+            "action": "navigate",
+            "id": "policy-plugin-deny",
+            "url": "https://example.com",
+            "plugins": [
+                {
+                    "name": "stealth",
+                    "command": "agent-browser-plugin-stealth",
+                    "capabilities": ["launch.mutate"]
+                }
+            ]
+        });
+
+        let resp = execute_command(&cmd, &mut state).await;
+
+        assert_eq!(resp["success"], false);
+        assert!(resp["error"]
+            .as_str()
+            .unwrap()
+            .contains("plugin:stealth:launch.mutate"));
+        assert!(state.pending_confirmation.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_confirm_rechecks_unapproved_plugin_action() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_PROVIDER"]);
+        guard.remove("AGENT_BROWSER_PROVIDER");
+        let dir = tempfile::tempdir().unwrap();
+        let policy_path = dir.path().join("policy.json");
+        fs::write(
+            &policy_path,
+            r#"{"confirm":["navigate","plugin:stealth:launch.mutate"]}"#,
+        )
+        .unwrap();
+
+        let mut state = DaemonState::new();
+        state.policy = Some(ActionPolicy::load(policy_path.to_str().unwrap()).unwrap());
+        let cmd = json!({
+            "action": "navigate",
+            "id": "policy-plugin-confirm",
+            "url": "https://example.com",
+            "plugins": [
+                {
+                    "name": "stealth",
+                    "command": "agent-browser-plugin-stealth",
+                    "capabilities": ["launch.mutate"]
+                }
+            ]
+        });
+
+        let first = execute_command(&cmd, &mut state).await;
+        assert_eq!(first["data"]["confirmation_required"], true);
+        assert_eq!(first["data"]["action"], "navigate");
+
+        let second = execute_command(
+            &json!({ "id": "policy-plugin-confirm-2", "action": "confirm" }),
+            &mut state,
+        )
+        .await;
+
+        assert_eq!(second["success"], true);
+        assert_eq!(
+            second["data"]["result"]["data"]["confirmation_required"],
+            true
+        );
+        assert_eq!(
+            second["data"]["result"]["data"]["action"],
+            "plugin:stealth:launch.mutate"
+        );
+        let pending = state.pending_confirmation.as_ref().unwrap();
+        assert_eq!(pending.action, "plugin:stealth:launch.mutate");
+        assert!(pending.approved_actions.iter().any(|a| a == "navigate"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_auth_login_does_not_resolve_plugin_without_browser() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let marker_path = dir.path().join("credential-plugin-invoked");
+        let plugin_path = dir.path().join("mock-credential-plugin");
+        fs::write(
+            &plugin_path,
+            r#"#!/bin/sh
+printf invoked > "$1"
+cat >/dev/null
+printf '%s' '{"protocol":"agent-browser.plugin.v1","success":true,"credential":{"username":"user","password":"pass","url":"https://example.com/login"}}'
+"#,
+        )
+        .unwrap();
+        let mut perms = fs::metadata(&plugin_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&plugin_path, perms).unwrap();
+
+        let mut state = DaemonState::new();
+        let cmd = json!({
+            "id": "auth-plugin-no-browser",
+            "action": "auth_login",
+            "name": "example",
+            "credentialProvider": "mock",
+            "plugins": [
+                {
+                    "name": "mock",
+                    "command": plugin_path.to_string_lossy(),
+                    "args": [marker_path.to_string_lossy()],
+                    "capabilities": ["credential.read"]
+                }
+            ]
+        });
+
+        let err = handle_auth_login(&cmd, &mut state).await.unwrap_err();
+
+        assert_eq!(err, "Browser not launched");
+        assert!(!marker_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_close_current_browser_closes_active_provider_plugin_session() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let request_path = dir.path().join("browser-close-request.json");
+        let plugin_path = dir.path().join("mock-provider-plugin");
+        fs::write(
+            &plugin_path,
+            r#"#!/bin/sh
+cat > "$1"
+printf '%s' '{"protocol":"agent-browser.plugin.v1","success":true,"data":{}}'
+"#,
+        )
+        .unwrap();
+        let mut perms = fs::metadata(&plugin_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&plugin_path, perms).unwrap();
+
+        let mut state = DaemonState::new();
+        state.active_provider_session = Some(ActiveProviderSession {
+            session: providers::ProviderSession {
+                provider: "plugin:cloud-browser".to_string(),
+                session_id: r#"{"sessionId":"s1"}"#.to_string(),
+            },
+            plugins: vec![crate::plugins::PluginConfig {
+                name: "cloud-browser".to_string(),
+                command: plugin_path.to_string_lossy().to_string(),
+                args: vec![request_path.to_string_lossy().to_string()],
+                capabilities: vec![crate::plugins::CAPABILITY_BROWSER_PROVIDER.to_string()],
+                ..crate::plugins::PluginConfig::default()
+            }],
+        });
+
+        close_current_browser(&mut state).await.unwrap();
+
+        assert!(state.active_provider_session.is_none());
+        let request = fs::read_to_string(request_path).unwrap();
+        assert!(request.contains(r#""type":"browser.close""#));
+        assert!(request.contains(r#""sessionId":"s1""#));
+    }
+
     #[tokio::test]
     async fn test_stream_enable_disable_and_status_without_browser() {
         let guard = EnvGuard::new(&["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_SESSION"]);
@@ -8423,22 +9342,100 @@ mod tests {
 
     #[test]
     fn test_launch_options_from_env_defaults() {
-        let _guard = EnvGuard::new(&["AGENT_BROWSER_HEADED"]);
+        let guard = EnvGuard::new(&["AGENT_BROWSER_HEADED", "AGENT_BROWSER_HIDE_SCROLLBARS"]);
+        guard.remove("AGENT_BROWSER_HEADED");
+        guard.remove("AGENT_BROWSER_HIDE_SCROLLBARS");
         let opts = launch_options_from_env();
         assert!(opts.headless);
         assert!(opts.args.is_empty());
         assert!(!opts.allow_file_access);
+        assert!(opts.hide_scrollbars);
     }
 
     #[test]
     fn test_launch_options_from_env_headed_flag() {
-        let _guard = EnvGuard::new(&["AGENT_BROWSER_HEADED"]);
-        _guard.set("AGENT_BROWSER_HEADED", "1");
+        let guard = EnvGuard::new(&["AGENT_BROWSER_HEADED", "AGENT_BROWSER_HIDE_SCROLLBARS"]);
+        guard.set("AGENT_BROWSER_HEADED", "1");
+        guard.remove("AGENT_BROWSER_HIDE_SCROLLBARS");
         let opts = launch_options_from_env();
         assert!(
             !opts.headless,
             "AGENT_BROWSER_HEADED=1 should set headless=false"
         );
+    }
+
+    #[test]
+    fn test_launch_options_from_env_hide_scrollbars_false() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_HIDE_SCROLLBARS"]);
+        guard.set("AGENT_BROWSER_HIDE_SCROLLBARS", "false");
+        let opts = launch_options_from_env();
+        assert!(!opts.hide_scrollbars);
+    }
+
+    #[test]
+    fn test_launch_hash_includes_plugin_init_scripts() {
+        let opts = LaunchOptions::default();
+        let no_scripts: Vec<String> = Vec::new();
+        let plugin_scripts = vec![
+            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });".to_string(),
+        ];
+
+        assert_ne!(
+            launch_hash(&opts, &no_scripts),
+            launch_hash(&opts, &plugin_scripts)
+        );
+    }
+
+    #[test]
+    fn test_write_extensions_file_from_paths_uses_final_extensions() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_EXTENSIONS"]);
+        let dir = tempfile::tempdir().unwrap();
+        guard.set("AGENT_BROWSER_SOCKET_DIR", dir.path().to_str().unwrap());
+        guard.set("AGENT_BROWSER_EXTENSIONS", "/env/ext");
+        let extensions = vec![
+            " /plugin/ext ".to_string(),
+            "".to_string(),
+            "/plugin/other".to_string(),
+        ];
+
+        write_extensions_file_from_paths("metadata-test", Some(&extensions));
+
+        let content = fs::read_to_string(extensions_file_path("metadata-test")).unwrap();
+        assert_eq!(content, "/plugin/ext,/plugin/other");
+    }
+
+    #[test]
+    fn test_write_extensions_file_from_paths_falls_back_to_env() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_SOCKET_DIR", "AGENT_BROWSER_EXTENSIONS"]);
+        let dir = tempfile::tempdir().unwrap();
+        guard.set("AGENT_BROWSER_SOCKET_DIR", dir.path().to_str().unwrap());
+        guard.set("AGENT_BROWSER_EXTENSIONS", "/env/ext");
+
+        write_extensions_file_from_paths("metadata-env-test", None);
+
+        let content = fs::read_to_string(extensions_file_path("metadata-env-test")).unwrap();
+        assert_eq!(content, "/env/ext");
+    }
+
+    #[test]
+    fn test_launch_cmd_hide_scrollbars_missing_uses_env_default() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_HIDE_SCROLLBARS"]);
+        guard.set("AGENT_BROWSER_HIDE_SCROLLBARS", "false");
+
+        assert!(!hide_scrollbars_from_launch_cmd(&json!({
+            "action": "launch"
+        })));
+    }
+
+    #[test]
+    fn test_launch_cmd_hide_scrollbars_explicit_overrides_env_default() {
+        let guard = EnvGuard::new(&["AGENT_BROWSER_HIDE_SCROLLBARS"]);
+        guard.set("AGENT_BROWSER_HIDE_SCROLLBARS", "false");
+
+        assert!(hide_scrollbars_from_launch_cmd(&json!({
+            "action": "launch",
+            "hideScrollbars": true
+        })));
     }
 
     #[test]
@@ -8699,10 +9696,11 @@ mod tests {
 
     #[test]
     fn test_default_timeout_ms_fallback() {
-        // When AGENT_BROWSER_DEFAULT_TIMEOUT is unset, DaemonState uses 30000
+        // When AGENT_BROWSER_DEFAULT_TIMEOUT is unset, DaemonState uses the
+        // documented 25s default (below the CLI's 30s IPC read timeout).
         env::remove_var("AGENT_BROWSER_DEFAULT_TIMEOUT");
         let state = DaemonState::new();
-        assert_eq!(state.default_timeout_ms, 30_000);
+        assert_eq!(state.default_timeout_ms, 25_000);
     }
 
     #[tokio::test]
@@ -8838,6 +9836,83 @@ mod tests {
         let patterns = build_fetch_patterns(&state).await;
         assert_eq!(patterns.len(), 1);
         assert_eq!(patterns[0]["urlPattern"], "https://example.com/*");
+    }
+
+    #[test]
+    fn test_route_url_matches_multi_wildcard_patterns() {
+        assert!(route_url_matches(
+            "**/api/users",
+            "https://app.example.com/v1/api/users"
+        ));
+        assert!(route_url_matches(
+            "**/analytics/**",
+            "https://cdn.example.com/analytics/event.js"
+        ));
+        assert!(route_url_matches(
+            "https://example.com/*/users",
+            "https://example.com/api/users"
+        ));
+        assert!(!route_url_matches(
+            "**/api/users",
+            "https://app.example.com/v1/api/users/42"
+        ));
+        assert!(!route_url_matches(
+            "**/analytics/**",
+            "https://cdn.example.com/static/event.js"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_build_fetch_patterns_collapses_repeated_wildcards() {
+        let state = DaemonState::new();
+        {
+            let mut routes = state.routes.write().await;
+            routes.push(super::RouteEntry {
+                url_pattern: "**/api/users".to_string(),
+                response: None,
+                abort: true,
+                resource_types: Vec::new(),
+            });
+        }
+        let patterns = build_fetch_patterns(&state).await;
+        assert_eq!(patterns.len(), 1);
+        assert_eq!(patterns[0]["urlPattern"], "*/api/users");
+    }
+
+    #[test]
+    fn test_parse_route_response_from_nested_response() {
+        let response = parse_route_response(&json!({
+            "response": {
+                "status": 201,
+                "body": "{\"ok\":true}",
+                "contentType": "application/json",
+                "headers": { "x-test": "yes" }
+            }
+        }))
+        .expect("response should parse");
+
+        assert_eq!(response.status, Some(201));
+        assert_eq!(response.body.as_deref(), Some("{\"ok\":true}"));
+        assert_eq!(response.content_type.as_deref(), Some("application/json"));
+        assert_eq!(
+            response
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get("x-test"))
+                .map(String::as_str),
+            Some("yes")
+        );
+    }
+
+    #[test]
+    fn test_parse_route_response_accepts_legacy_top_level_body() {
+        let response = parse_route_response(&json!({ "body": "{\"users\":[]}" }))
+            .expect("legacy body should parse");
+
+        assert_eq!(response.status, None);
+        assert_eq!(response.body.as_deref(), Some("{\"users\":[]}"));
+        assert_eq!(response.content_type, None);
+        assert_eq!(response.headers, None);
     }
 
     #[tokio::test]
