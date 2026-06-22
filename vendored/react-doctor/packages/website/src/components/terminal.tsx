@@ -1,125 +1,111 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Image from "next/image";
 import { Copy, Check, ChevronRight, RotateCcw } from "lucide-react";
+import { PERFECT_SCORE, RUN_COMMAND } from "@/constants";
+import { getDoctorFace } from "@/utils/get-doctor-face";
+import { getScoreColorClass } from "@/utils/get-score-color-class";
+import { getScoreLabel } from "@/utils/get-score-label";
 
 const COPIED_RESET_DELAY_MS = 2000;
-const INITIAL_DELAY_MS = 500;
-const TYPING_DELAY_MS = 50;
-const PROJECT_SCAN_DELAY_MS = 800;
-const POST_HEADER_DELAY_MS = 600;
-const DIAGNOSTIC_MIN_DELAY_MS = 150;
-const DIAGNOSTIC_MAX_DELAY_MS = 350;
-const SCORE_REVEAL_DELAY_MS = 600;
+const INITIAL_DELAY_MS = 250;
+const TYPING_DELAY_MS = 25;
+const POST_COMMAND_DELAY_MS = 350;
+const POST_VERSION_DELAY_MS = 250;
+const DIAGNOSTIC_MIN_DELAY_MS = 60;
+const DIAGNOSTIC_MAX_DELAY_MS = 140;
+const SCORE_REVEAL_DELAY_MS = 250;
 const SCORE_FRAME_COUNT = 20;
 const SCORE_FRAME_DELAY_MS = 30;
-const POST_SCORE_DELAY_MS = 700;
+const POST_SCORE_DELAY_MS = 300;
 const TARGET_SCORE = 42;
-const PERFECT_SCORE = 100;
 const SCORE_BAR_WIDTH_MOBILE = 15;
 const SCORE_BAR_WIDTH_DESKTOP = 30;
-const SCORE_GOOD_THRESHOLD = 75;
-const SCORE_OK_THRESHOLD = 50;
-const DIAGNOSTIC_COUNT_MOBILE = 3;
-const TOTAL_ERROR_COUNT = 22;
+const TOTAL_ISSUE_COUNT = 36;
+const TOTAL_SOURCE_FILE_COUNT = 42;
 const AFFECTED_FILE_COUNT = 18;
 const ELAPSED_TIME = "2.1s";
 
 const ANIMATION_COMPLETED_KEY = "react-doctor-animation-completed";
-const COMMAND = "npx -y react-doctor@latest .";
 const GITHUB_URL = "https://github.com/millionco/react-doctor";
 const GITHUB_ICON_PATH =
   "M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z";
 
-interface FileLocation {
-  path: string;
-  lines: number[];
-}
-
-interface Diagnostic {
+interface RuleDiagnostic {
+  ruleKey: string;
+  severity: "error" | "warning";
   message: string;
+  help: string;
   count: number;
-  files: FileLocation[];
+  location: string;
 }
 
-const DIAGNOSTICS: Diagnostic[] = [
+const DIAGNOSTICS: RuleDiagnostic[] = [
   {
-    message: "Derived state computed in useEffect, compute during render instead",
+    ruleKey: "react-doctor/no-derived-state-effect",
+    severity: "error",
+    message:
+      "Derived state is computed in useEffect, so users briefly see stale UI before the extra render",
+    help: "Derive values directly in the render body, or use useMemo for expensive computations.",
     count: 5,
-    files: [
-      { path: "src/components/Dashboard.tsx", lines: [42, 87] },
-      { path: "src/hooks/useFilters.ts", lines: [15, 23, 31] },
-    ],
+    location: "src/components/Dashboard.tsx:42",
   },
   {
-    message: 'Server action "deleteUser" missing authentication check',
+    ruleKey: "react-doctor/no-server-action-auth",
+    severity: "error",
+    message: 'Server action "deleteUser" has no auth check, so any caller could run it',
+    help: "Add an authentication check at the top of every server action.",
     count: 2,
-    files: [
-      { path: "src/app/actions/users.ts", lines: [18] },
-      { path: "src/app/actions/admin.ts", lines: [45] },
-    ],
+    location: "src/app/actions/users.ts:18",
   },
   {
-    message: "Array index used as key, causes bugs when items are reordered",
+    ruleKey: "react/no-array-index-key",
+    severity: "error",
+    message: "Array index is used as a key, so reordered items can keep the wrong state",
+    help: "Use a unique, stable identifier from each item as the key prop.",
     count: 12,
-    files: [
-      { path: "src/components/TodoList.tsx", lines: [24, 51] },
-      { path: "src/components/CommentThread.tsx", lines: [33, 67, 89] },
-      { path: "src/components/SearchResults.tsx", lines: [19, 42, 55, 78, 91, 103, 112] },
-    ],
+    location: "src/components/TodoList.tsx:24",
   },
   {
-    message: 'Component "UserCard" inside "Dashboard", destroys state every render',
+    ruleKey: "react-doctor/no-render-in-render",
+    severity: "error",
+    message: 'Component "UserCard" is defined inside "Dashboard", so it remounts and loses state',
+    help: "Move the inner component to a separate file or to the module scope.",
     count: 4,
-    files: [
-      { path: "src/components/Dashboard.tsx", lines: [56, 112] },
-      { path: "src/components/Settings.tsx", lines: [34, 78] },
-    ],
+    location: "src/components/Dashboard.tsx:56",
   },
   {
-    message: "Data fetched in useEffect without cleanup, causes race conditions",
+    ruleKey: "react-doctor/no-fetch-in-effect",
+    severity: "error",
+    message: "Data fetch in useEffect has no cleanup, so slower responses can overwrite newer data",
+    help: "Use a data-fetching library or add an AbortController for cleanup.",
     count: 8,
-    files: [
-      { path: "src/components/Profile.tsx", lines: [22] },
-      { path: "src/components/Feed.tsx", lines: [45, 89] },
-      { path: "src/hooks/useUser.ts", lines: [12, 34] },
-      { path: "src/hooks/usePosts.ts", lines: [8, 19, 27] },
-    ],
-  },
-  {
-    message: "useState initialized from prop, derive during render instead of syncing",
-    count: 3,
-    files: [
-      { path: "src/components/EditForm.tsx", lines: [15, 16] },
-      { path: "src/components/Modal.tsx", lines: [28] },
-    ],
-  },
-  {
-    message: "Missing prefers-reduced-motion check for animations",
-    count: 2,
-    files: [
-      { path: "src/components/Hero.tsx", lines: [41] },
-      { path: "src/components/Carousel.tsx", lines: [63] },
-    ],
+    location: "src/components/Profile.tsx:22",
   },
 ];
 
-const getScoreColor = (score: number) => {
-  if (score >= SCORE_GOOD_THRESHOLD) return "text-green-400";
-  if (score >= SCORE_OK_THRESHOLD) return "text-yellow-500";
-  return "text-red-400";
-};
-
-const getScoreLabel = (score: number) => {
-  if (score >= SCORE_GOOD_THRESHOLD) return "Great";
-  if (score >= SCORE_OK_THRESHOLD) return "Needs work";
-  return "Critical";
-};
-
 const easeOutCubic = (progress: number) => 1 - Math.pow(1 - progress, 3);
 
-const sleep = (milliseconds: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+const sleep = (milliseconds: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener("abort", handleAbort);
+      resolve();
+    }, milliseconds);
+    const handleAbort = () => {
+      clearTimeout(timeoutId);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+
+const isAbortError = (error: unknown): boolean =>
+  error instanceof DOMException && error.name === "AbortError";
 
 const Spacer = () => <div className="min-h-[1.4em]" />;
 
@@ -127,32 +113,10 @@ const FadeIn = ({ children }: { children: React.ReactNode }) => (
   <div className="animate-fade-in">{children}</div>
 );
 
-const getDoctorFace = (score: number): [string, string] => {
-  if (score >= SCORE_GOOD_THRESHOLD) return ["◠ ◠", " ▽ "];
-  if (score >= SCORE_OK_THRESHOLD) return ["• •", " ─ "];
-  return ["x x", " ▽ "];
-};
-
-const BOX_TOP = "┌─────┐";
-const BOX_BOTTOM = "└─────┘";
-
-const DoctorBranding = ({ score }: { score: number }) => {
-  const [eyes, mouth] = getDoctorFace(score);
-  const colorClass = getScoreColor(score);
-
-  return (
-    <div>
-      <pre className={`${colorClass} leading-tight`}>
-        {`  ${BOX_TOP}\n  │ ${eyes} │\n  │ ${mouth} │\n  ${BOX_BOTTOM}`}
-      </pre>
-    </div>
-  );
-};
-
 const ScoreBar = ({ score, barWidth }: { score: number; barWidth: number }) => {
   const filledCount = Math.round((score / PERFECT_SCORE) * barWidth);
   const emptyCount = barWidth - filledCount;
-  const colorClass = getScoreColor(score);
+  const colorClass = getScoreColorClass(score);
 
   return (
     <>
@@ -162,23 +126,78 @@ const ScoreBar = ({ score, barWidth }: { score: number; barWidth: number }) => {
   );
 };
 
-const ScoreGauge = ({ score }: { score: number }) => {
-  const colorClass = getScoreColor(score);
+const BOX_TOP = "┌─────┐";
+const BOX_BOTTOM = "└─────┘";
+
+const ScoreHeader = ({ score }: { score: number }) => {
+  const [eyes, mouth] = getDoctorFace(score);
+  const colorClass = getScoreColorClass(score);
+  const scoreLabel = getScoreLabel(score);
 
   return (
-    <div className="pl-2">
-      <div>
-        <span className={colorClass}>{score}</span>
-        {` / ${PERFECT_SCORE}  `}
-        <span className={colorClass}>{getScoreLabel(score)}</span>
+    <div>
+      <pre className={`${colorClass} leading-tight`}>
+        {`  ${BOX_TOP}\n  │ ${eyes} │\n  │ ${mouth} │\n  ${BOX_BOTTOM}`}
+      </pre>
+      <div className="mt-2 pl-2">
+        <div>
+          <span className={colorClass}>{score}</span>
+          <span className="text-neutral-500">{` / ${PERFECT_SCORE}`}</span>
+          {"  "}
+          <span className={colorClass}>{scoreLabel}</span>
+        </div>
+        <div className="my-1 text-xs sm:text-sm">
+          <span className="sm:hidden">
+            <ScoreBar score={score} barWidth={SCORE_BAR_WIDTH_MOBILE} />
+          </span>
+          <span className="hidden sm:inline">
+            <ScoreBar score={score} barWidth={SCORE_BAR_WIDTH_DESKTOP} />
+          </span>
+        </div>
+        <div>
+          React Doctor <span className="text-neutral-500">(https://react.doctor)</span>
+        </div>
       </div>
-      <div className="my-1 text-xs sm:text-sm">
-        <span className="sm:hidden">
-          <ScoreBar score={score} barWidth={SCORE_BAR_WIDTH_MOBILE} />
+    </div>
+  );
+};
+
+const DiagnosticItem = ({ diagnostic }: { diagnostic: RuleDiagnostic }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const colorClass = diagnostic.severity === "error" ? "text-red-400" : "text-yellow-500";
+  const icon = diagnostic.severity === "error" ? "✗" : "⚠";
+  const countBadge = diagnostic.count > 1 ? `×${diagnostic.count}` : "";
+
+  return (
+    <div className="mb-1">
+      <button
+        onClick={() => setIsOpen((previous) => !previous)}
+        className="inline-flex items-start gap-1 text-left"
+      >
+        <ChevronRight
+          size={16}
+          className={`mt-[0.35em] shrink-0 text-neutral-500 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`}
+        />
+        <span>
+          <span className={colorClass}>{icon} </span>
+          <span className={colorClass}>{diagnostic.ruleKey}</span>
+          {countBadge && <span className="text-neutral-500">{`\u00A0${countBadge}`}</span>}
         </span>
-        <span className="hidden sm:inline">
-          <ScoreBar score={score} barWidth={SCORE_BAR_WIDTH_DESKTOP} />
-        </span>
+      </button>
+      <div
+        className="ml-6 grid text-neutral-500 transition-[grid-template-rows,opacity] duration-200 ease-out"
+        style={{
+          gridTemplateRows: isOpen ? "1fr" : "0fr",
+          opacity: isOpen ? 1 : 0,
+        }}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-1">
+            <div>{diagnostic.message}</div>
+            <div>→ {diagnostic.help}</div>
+            <div>{diagnostic.location}</div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -188,7 +207,7 @@ const CopyCommand = () => {
   const [didCopy, setDidCopy] = useState(false);
 
   const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(COMMAND);
+    await navigator.clipboard.writeText(RUN_COMMAND);
     setDidCopy(true);
     setTimeout(() => setDidCopy(false), COPIED_RESET_DELAY_MS);
   }, []);
@@ -200,7 +219,7 @@ const CopyCommand = () => {
 
   return (
     <div className="group flex items-center gap-4 border border-white/20 px-3 py-1.5 transition-colors hover:bg-white/5">
-      <span className="select-all whitespace-nowrap text-white">{COMMAND}</span>
+      <span className="select-all whitespace-nowrap text-white">{RUN_COMMAND}</span>
       <button onClick={handleCopy}>
         <IconComponent size={16} className={iconClass} />
       </button>
@@ -208,82 +227,34 @@ const CopyCommand = () => {
   );
 };
 
-const DiagnosticItem = ({ diagnostic }: { diagnostic: Diagnostic }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <div className="mb-1">
-      <div className="sm:hidden">
-        <span className="text-red-400"> ✗</span>
-        {` ${diagnostic.message} `}
-        <span className="text-neutral-500">({diagnostic.count})</span>
-      </div>
-      <div className="hidden sm:block">
-        <button
-          onClick={() => setIsOpen((previous) => !previous)}
-          className="inline-flex items-start gap-1 text-left"
-        >
-          <ChevronRight
-            size={16}
-            className={`mt-[0.35em] shrink-0 text-neutral-500 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`}
-          />
-          <span>
-            <span className="text-red-400">✗</span>
-            {` ${diagnostic.message} `}
-            <span className="text-neutral-500">({diagnostic.count})</span>
-          </span>
-        </button>
-        <div
-          className="ml-6 grid text-sm text-neutral-500 transition-[grid-template-rows,opacity] duration-200 ease-out sm:text-base"
-          style={{
-            gridTemplateRows: isOpen ? "1fr" : "0fr",
-            opacity: isOpen ? 1 : 0,
-          }}
-        >
-          <div className="overflow-hidden">
-            <div className="mt-1">
-              {diagnostic.files.map((file) => (
-                <div key={file.path}>
-                  {file.path}
-                  {file.lines.length > 0 && `: ${file.lines.join(", ")}`}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 interface AnimationState {
   typedCommand: string;
   isTyping: boolean;
-  showHeader: boolean;
+  showVersion: boolean;
   visibleDiagnosticCount: number;
-  showSeparator: boolean;
   score: number | null;
-  showSummary: boolean;
+  showCountsSummary: boolean;
+  showCta: boolean;
 }
 
 const INITIAL_STATE: AnimationState = {
   typedCommand: "",
   isTyping: true,
-  showHeader: false,
+  showVersion: false,
   visibleDiagnosticCount: 0,
-  showSeparator: false,
   score: null,
-  showSummary: false,
+  showCountsSummary: false,
+  showCta: false,
 };
 
 const COMPLETED_STATE: AnimationState = {
-  typedCommand: COMMAND,
+  typedCommand: RUN_COMMAND,
   isTyping: false,
-  showHeader: true,
+  showVersion: true,
   visibleDiagnosticCount: DIAGNOSTICS.length,
-  showSeparator: true,
   score: TARGET_SCORE,
-  showSummary: true,
+  showCountsSummary: true,
+  showCta: true,
 };
 
 const didAnimationComplete = () => {
@@ -309,56 +280,56 @@ const Terminal = () => {
       return;
     }
 
-    let cancelled = false;
+    const abortController = new AbortController();
+    const { signal } = abortController;
 
     const update = (patch: Partial<AnimationState>) => {
-      if (!cancelled) setState((previous) => ({ ...previous, ...patch }));
+      if (signal.aborted) return;
+      setState((previous) => ({ ...previous, ...patch }));
     };
 
     const run = async () => {
-      await sleep(INITIAL_DELAY_MS);
+      await sleep(INITIAL_DELAY_MS, signal);
 
-      for (let index = 0; index <= COMMAND.length; index++) {
-        if (cancelled) return;
-        update({ typedCommand: COMMAND.slice(0, index) });
-        await sleep(TYPING_DELAY_MS);
+      for (let index = 0; index <= RUN_COMMAND.length; index++) {
+        update({ typedCommand: RUN_COMMAND.slice(0, index) });
+        await sleep(TYPING_DELAY_MS, signal);
       }
 
       update({ isTyping: false });
-      await sleep(PROJECT_SCAN_DELAY_MS);
-      if (cancelled) return;
+      await sleep(POST_COMMAND_DELAY_MS, signal);
 
-      update({ showHeader: true });
-      await sleep(POST_HEADER_DELAY_MS);
+      update({ showVersion: true });
+      await sleep(POST_VERSION_DELAY_MS, signal);
 
       for (let index = 0; index < DIAGNOSTICS.length; index++) {
-        if (cancelled) return;
         update({ visibleDiagnosticCount: index + 1 });
         const jitteredDelay =
           DIAGNOSTIC_MIN_DELAY_MS +
           Math.random() * (DIAGNOSTIC_MAX_DELAY_MS - DIAGNOSTIC_MIN_DELAY_MS);
-        await sleep(jitteredDelay);
+        await sleep(jitteredDelay, signal);
       }
 
-      update({ showSeparator: true });
-      await sleep(SCORE_REVEAL_DELAY_MS);
+      await sleep(SCORE_REVEAL_DELAY_MS, signal);
 
       for (let frame = 0; frame <= SCORE_FRAME_COUNT; frame++) {
-        if (cancelled) return;
         update({ score: Math.round(easeOutCubic(frame / SCORE_FRAME_COUNT) * TARGET_SCORE) });
-        await sleep(SCORE_FRAME_DELAY_MS);
+        await sleep(SCORE_FRAME_DELAY_MS, signal);
       }
 
-      await sleep(POST_SCORE_DELAY_MS);
-      if (cancelled) return;
-      update({ showSummary: true });
+      await sleep(POST_SCORE_DELAY_MS, signal);
+      update({ showCountsSummary: true });
+
+      await sleep(POST_SCORE_DELAY_MS, signal);
+      update({ showCta: true });
       markAnimationCompleted();
     };
 
-    run();
-    return () => {
-      cancelled = true;
-    };
+    run().catch((error) => {
+      if (!isAbortError(error)) throw error;
+    });
+
+    return () => abortController.abort();
   }, []);
 
   return (
@@ -369,65 +340,60 @@ const Terminal = () => {
         {state.isTyping && <span>▋</span>}
       </div>
 
-      {state.showHeader && (
+      {state.showVersion && (
         <FadeIn>
           <Spacer />
           <div className="flex items-center gap-2">
-            <img src="/favicon.svg" alt="React Doctor" width={24} height={24} />
+            <Image src="/favicon.svg" alt="React Doctor" width={24} height={24} unoptimized />
             react-doctor
           </div>
-          <div className="text-neutral-500">
-            Let coding agents diagnose and fix your React code.
-          </div>
+          <div className="text-neutral-500">Your agent writes bad React, this catches it.</div>
+          <Spacer />
+          <div className="text-neutral-500">Works with Next.js, Vite, and React Native.</div>
           <Spacer />
         </FadeIn>
       )}
 
-      <div className="sm:hidden">
-        {DIAGNOSTICS.slice(0, Math.min(state.visibleDiagnosticCount, DIAGNOSTIC_COUNT_MOBILE)).map(
-          (diagnostic) => (
-            <FadeIn key={diagnostic.message}>
+      {state.visibleDiagnosticCount > 0 && (
+        <div>
+          {DIAGNOSTICS.slice(0, state.visibleDiagnosticCount).map((diagnostic) => (
+            <FadeIn key={diagnostic.ruleKey}>
               <DiagnosticItem diagnostic={diagnostic} />
             </FadeIn>
-          ),
-        )}
-      </div>
-      <div className="hidden sm:block">
-        {DIAGNOSTICS.slice(0, state.visibleDiagnosticCount).map((diagnostic) => (
-          <FadeIn key={diagnostic.message}>
-            <DiagnosticItem diagnostic={diagnostic} />
-          </FadeIn>
-        ))}
-      </div>
-
-      {state.showSeparator && <Spacer />}
+          ))}
+        </div>
+      )}
 
       {state.score !== null && (
         <FadeIn>
-          <DoctorBranding score={state.score} />
+          <ScoreHeader score={state.score} />
           <Spacer />
-          <ScoreGauge score={state.score} />
         </FadeIn>
       )}
 
-      {state.showSummary && (
+      {state.showCountsSummary && (
         <FadeIn>
-          <Spacer />
           <div>
-            <span className="text-red-400">{TOTAL_ERROR_COUNT} errors</span>
+            <span className="text-neutral-500">{"  "}</span>
+            <span className="text-red-400">{TOTAL_ISSUE_COUNT} issues</span>
             <span className="text-neutral-500">
-              {`  across ${AFFECTED_FILE_COUNT} files  in ${ELAPSED_TIME}`}
+              {`  across ${AFFECTED_FILE_COUNT}/${TOTAL_SOURCE_FILE_COUNT} files  in ${ELAPSED_TIME}`}
             </span>
           </div>
           <Spacer />
-          <div className="text-neutral-500">Run it on your codebase to find issues like these:</div>
+        </FadeIn>
+      )}
+
+      {state.showCta && (
+        <FadeIn>
+          <div className="text-neutral-500">Run it on your codebase:</div>
           <Spacer />
           <div className="flex flex-wrap items-center gap-3">
             <CopyCommand />
             <a
               href={GITHUB_URL}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap border border-white/20 bg-white px-3 py-1.5 text-black transition-all hover:bg-white/90 active:scale-[0.98]"
             >
               <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
@@ -439,7 +405,7 @@ const Terminal = () => {
         </FadeIn>
       )}
 
-      {state.showSummary && (
+      {state.showCta && (
         <div className="mt-8">
           <button
             onClick={() => {

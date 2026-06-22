@@ -1,66 +1,126 @@
-import path from "node:path";
-import type { Diagnostic, DiffInfo, ProjectInfo, ReactDoctorConfig, ScoreResult } from "./types.js";
-import { diagnoseCore } from "./core/diagnose-core.js";
-import { computeJsxIncludePaths } from "./utils/jsx-include-paths.js";
-import { checkReducedMotion } from "./utils/check-reduced-motion.js";
-import { discoverProject } from "./utils/discover-project.js";
-import { loadConfig } from "./utils/load-config.js";
-import { createNodeReadFileLinesSync } from "./utils/read-file-lines-node.js";
-import { resolveLintIncludePaths } from "./utils/resolve-lint-include-paths.js";
-import { calculateScore } from "./utils/calculate-score-node.js";
-import { runKnip } from "./utils/run-knip.js";
-import { runOxlint } from "./utils/run-oxlint.js";
+import {
+  buildJsonReport,
+  buildJsonReportError,
+  clearAutoSuppressionCaches,
+  clearConfigCache,
+  clearIgnorePatternsCache,
+  clearMinifiedFileCache,
+  clearPackageJsonCache,
+  clearPackageRoleCache,
+  clearProjectCache,
+} from "@react-doctor/core";
+import type {
+  Diagnostic,
+  DiagnoseOptions,
+  DiagnoseProjectsInput,
+  DiagnoseProjectsResult,
+  DiagnoseResult,
+  DiffInfo,
+  JsonReport,
+  JsonReportDiffInfo,
+  JsonReportError,
+  JsonReportMode,
+  JsonReportProjectEntry,
+  JsonReportSummary,
+  ProjectDefinition,
+  ProjectInfo,
+  ProjectResult,
+  ProjectResultError,
+  ProjectResultOk,
+  ReactDoctorConfig,
+  ScoreResult,
+} from "@react-doctor/core";
 
-export type { Diagnostic, DiffInfo, ProjectInfo, ReactDoctorConfig, ScoreResult };
-export { getDiffInfo, filterSourceFiles } from "./utils/get-diff-files.js";
-
-export interface DiagnoseOptions {
-  lint?: boolean;
-  deadCode?: boolean;
-  includePaths?: string[];
-}
-
-export interface DiagnoseResult {
-  diagnostics: Diagnostic[];
-  score: ScoreResult | null;
-  project: ProjectInfo;
-  elapsedMilliseconds: number;
-}
-
-export const diagnose = async (
-  directory: string,
-  options: DiagnoseOptions = {},
-): Promise<DiagnoseResult> => {
-  const resolvedDirectory = path.resolve(directory);
-  const userConfig = loadConfig(resolvedDirectory);
-  const includePaths = options.includePaths ?? [];
-  const isDiffMode = includePaths.length > 0;
-  const lintIncludePaths =
-    computeJsxIncludePaths(includePaths) ?? resolveLintIncludePaths(resolvedDirectory, userConfig);
-  const readFileLinesSync = createNodeReadFileLinesSync(resolvedDirectory);
-
-  return diagnoseCore(
-    {
-      rootDirectory: resolvedDirectory,
-      readFileLinesSync,
-      loadUserConfig: () => userConfig,
-      discoverProjectInfo: () => discoverProject(resolvedDirectory),
-      calculateDiagnosticsScore: calculateScore,
-      getExtraDiagnostics: () => (isDiffMode ? [] : checkReducedMotion(resolvedDirectory)),
-      createRunners: ({ resolvedDirectory: projectRoot, projectInfo, userConfig: config }) => ({
-        runLint: () =>
-          runOxlint(
-            projectRoot,
-            projectInfo.hasTypeScript,
-            projectInfo.framework,
-            projectInfo.hasReactCompiler,
-            lintIncludePaths,
-            undefined,
-            config?.customRulesOnly ?? false,
-          ),
-        runDeadCode: () => runKnip(projectRoot),
-      }),
-    },
-    { ...options, lintIncludePaths },
-  );
+export type {
+  Diagnostic,
+  DiagnoseOptions,
+  DiagnoseProjectsInput,
+  DiagnoseProjectsResult,
+  DiagnoseResult,
+  DiffInfo,
+  JsonReport,
+  JsonReportDiffInfo,
+  JsonReportError,
+  JsonReportMode,
+  JsonReportProjectEntry,
+  JsonReportSummary,
+  ProjectDefinition,
+  ProjectInfo,
+  ProjectResult,
+  ProjectResultError,
+  ProjectResultOk,
+  ReactDoctorConfig,
+  ScoreResult,
 };
+export {
+  getDiffInfo,
+  filterSourceFiles,
+  summarizeDiagnostics,
+  defineConfig,
+} from "@react-doctor/core";
+export { buildJsonReport, buildJsonReportError };
+// `ReactDoctorError` is the tagged Schema class from
+// `@react-doctor/core`, used by the new Effect pipeline.
+// `isReactDoctorError` narrows to that tagged class.
+// The four narrow errors below are still plain JS Error subclasses —
+// they're thrown synchronously by `discoverProject` /
+// `resolveDiagnoseTarget` / `readPackageJson` BEFORE the Effect
+// runtime takes over, so callers can `try/catch` them without
+// Effect-aware machinery.
+export {
+  ReactDoctorError,
+  ProjectNotFoundError,
+  NoReactDependencyError,
+  PackageJsonNotFoundError,
+  NotADirectoryError,
+  AmbiguousProjectError,
+  isReactDoctorError,
+  isProjectDiscoveryError,
+} from "@react-doctor/core";
+
+// HACK: programmatic API consumers (watch-mode tools, test runners,
+// agentic CLI flows) call diagnose() repeatedly on the same directory.
+// project / config / package.json results are memoized at module scope
+// to keep CLI scans fast — this hook lets long-running consumers
+// invalidate when the underlying files change between calls.
+export const clearCaches = (): void => {
+  clearProjectCache();
+  clearConfigCache();
+  clearPackageJsonCache();
+  clearIgnorePatternsCache();
+  clearPackageRoleCache();
+  clearAutoSuppressionCaches();
+  clearMinifiedFileCache();
+};
+
+interface ToJsonReportOptions {
+  version: string;
+  directory?: string;
+  mode?: JsonReportMode;
+}
+
+export const toJsonReport = (result: DiagnoseResult, options: ToJsonReportOptions): JsonReport =>
+  buildJsonReport({
+    version: options.version,
+    directory: options.directory ?? result.project.rootDirectory,
+    mode: options.mode ?? "full",
+    diff: null,
+    scans: [
+      {
+        directory: result.project.rootDirectory,
+        result: {
+          diagnostics: result.diagnostics,
+          score: result.score,
+          skippedChecks: result.skippedChecks,
+          ...(result.skippedCheckReasons
+            ? { skippedCheckReasons: result.skippedCheckReasons }
+            : {}),
+          project: result.project,
+          elapsedMilliseconds: result.elapsedMilliseconds,
+        },
+      },
+    ],
+    totalElapsedMilliseconds: result.elapsedMilliseconds,
+  });
+
+export { diagnose } from "@react-doctor/api";

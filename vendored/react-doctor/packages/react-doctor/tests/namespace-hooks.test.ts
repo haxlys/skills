@@ -1,13 +1,18 @@
-import path from "node:path";
-import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/types.js";
-import { runOxlint } from "../src/utils/run-oxlint.js";
+import * as path from "node:path";
+import { describe, expect, it } from "vite-plus/test";
+import type { Diagnostic } from "@react-doctor/core";
+import { runOxlint } from "@react-doctor/core";
+import { buildTestProject } from "./regressions/_helpers.js";
 
-const FIXTURES_DIRECTORY = path.resolve(import.meta.dirname, "fixtures");
+const FIXTURES_DIRECTORY = path.resolve(
+  import.meta.dirname,
+  "..",
+  "..",
+  "core",
+  "tests",
+  "fixtures",
+);
 const BASIC_REACT_DIRECTORY = path.join(FIXTURES_DIRECTORY, "basic-react");
-
-const findDiagnosticsByRule = (diagnostics: Diagnostic[], rule: string): Diagnostic[] =>
-  diagnostics.filter((diagnostic) => diagnostic.rule === rule);
 
 const findDiagnosticsInFile = (
   diagnostics: Diagnostic[],
@@ -22,14 +27,20 @@ let diagnostics: Diagnostic[];
 
 describe("namespace hook detection (React.useEffect, React.useState, etc.)", () => {
   it("loads diagnostics from namespace-hooks fixture", async () => {
-    diagnostics = await runOxlint(BASIC_REACT_DIRECTORY, true, "unknown", false);
+    diagnostics = await runOxlint({
+      rootDirectory: BASIC_REACT_DIRECTORY,
+      project: buildTestProject({
+        rootDirectory: BASIC_REACT_DIRECTORY,
+        hasTanStackQuery: true,
+      }),
+    });
     expect(diagnostics.length).toBeGreaterThan(0);
   });
 
   it("detects no-derived-state-effect with React.useEffect", () => {
     const issues = findDiagnosticsInFile(diagnostics, "no-derived-state-effect", "namespace-hooks");
     expect(issues.length).toBeGreaterThan(0);
-    expect(issues[0].message).toContain("Derived state in useEffect");
+    expect(issues[0].message).toContain("derive from other values");
   });
 
   it("detects no-fetch-in-effect with React.useEffect", () => {
@@ -41,7 +52,7 @@ describe("namespace hook detection (React.useEffect, React.useState, etc.)", () 
   it("detects no-cascading-set-state with React.useEffect", () => {
     const issues = findDiagnosticsInFile(diagnostics, "no-cascading-set-state", "namespace-hooks");
     expect(issues.length).toBeGreaterThan(0);
-    expect(issues[0].message).toContain("setState calls in a single useEffect");
+    expect(issues[0].message).toContain("setState calls in one useEffect");
   });
 
   it("detects no-effect-event-handler with React.useEffect", () => {
@@ -52,7 +63,10 @@ describe("namespace hook detection (React.useEffect, React.useState, etc.)", () 
   it("detects no-derived-useState with React.useState", () => {
     const issues = findDiagnosticsInFile(diagnostics, "no-derived-useState", "namespace-hooks");
     expect(issues.length).toBeGreaterThan(0);
-    expect(issues[0].message).toContain("initialName");
+    // NOTE: prop name is `currentName` (NOT `initialName`) — the
+    // initial-only prop-name skip in `no-derived-useState` would
+    // suppress `initialName` as a controlled-init pattern.
+    expect(issues[0].message).toContain("currentName");
   });
 
   it("detects rerender-lazy-state-init with React.useState", () => {
@@ -71,7 +85,7 @@ describe("namespace hook detection (React.useEffect, React.useState, etc.)", () 
       "namespace-hooks",
     );
     expect(issues.length).toBeGreaterThan(0);
-    expect(issues[0].message).toContain("use functional update");
+    expect(issues[0].message).toContain("reads a stale value");
   });
 
   it("detects rerender-dependencies with React.useEffect and React.useCallback", () => {

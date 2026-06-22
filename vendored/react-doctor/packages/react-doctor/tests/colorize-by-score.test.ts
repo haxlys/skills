@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { colorizeByScore } from "../src/utils/colorize-by-score.js";
+import { describe, expect, it } from "vite-plus/test";
+import { colorizeByScore } from "../src/cli/utils/colorize-by-score.js";
 
 describe("colorizeByScore", () => {
   it("returns a string for high scores", () => {
