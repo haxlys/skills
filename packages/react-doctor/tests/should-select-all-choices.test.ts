@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { shouldSelectAllChoices } from "../src/utils/should-select-all-choices.js";
+import { describe, expect, it } from "vite-plus/test";
+import { shouldSelectAllChoices } from "../src/cli/utils/should-select-all-choices.js";
 
 describe("shouldSelectAllChoices", () => {
   it("returns true when no enabled choice is selected", () => {

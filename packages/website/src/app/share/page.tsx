@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
+import { RUN_COMMAND, SHARE_BASE_URL } from "@/constants";
+import { clampScore } from "@/utils/clamp-score";
+import { getDoctorFace } from "@/utils/get-doctor-face";
+import { getScoreColorClass } from "@/utils/get-score-color-class";
+import { getScoreLabel } from "@/utils/get-score-label";
 import AnimatedScore from "./animated-score";
 import BadgeSnippet from "./badge-snippet";
 
-const PERFECT_SCORE = 100;
-const SCORE_GOOD_THRESHOLD = 75;
-const SCORE_OK_THRESHOLD = 50;
-const COMMAND = "npx -y react-doctor@latest .";
-const SHARE_BASE_URL = "https://www.react.doctor/share";
+const MAX_PROJECT_NAME_LENGTH = 100;
+const MAX_DISPLAY_COUNT = 99_999;
 const X_ICON_PATH =
   "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z";
 const LINKEDIN_ICON_PATH =
@@ -20,24 +22,11 @@ interface ShareSearchParams {
   f?: string;
 }
 
-const clampScore = (value: number): number => Math.max(0, Math.min(PERFECT_SCORE, value));
-
-const getScoreLabel = (score: number): string => {
-  if (score >= SCORE_GOOD_THRESHOLD) return "Great";
-  if (score >= SCORE_OK_THRESHOLD) return "Needs work";
-  return "Critical";
-};
-
-const getScoreColorClass = (score: number): string => {
-  if (score >= SCORE_GOOD_THRESHOLD) return "text-green-400";
-  if (score >= SCORE_OK_THRESHOLD) return "text-yellow-500";
-  return "text-red-400";
-};
-
-const getDoctorFace = (score: number): [string, string] => {
-  if (score >= SCORE_GOOD_THRESHOLD) return ["\u25E0 \u25E0", " \u25BD "];
-  if (score >= SCORE_OK_THRESHOLD) return ["\u2022 \u2022", " \u2500 "];
-  return ["x x", " \u25BD "];
+const clampDisplayCount = (value: number): number =>
+  Math.max(0, Math.min(MAX_DISPLAY_COUNT, value));
+const clampProjectName = (value: string | undefined | null): string | null => {
+  if (!value) return null;
+  return value.length > MAX_PROJECT_NAME_LENGTH ? value.slice(0, MAX_PROJECT_NAME_LENGTH) : value;
 };
 
 const DoctorFace = ({ score }: { score: number }) => {
@@ -57,10 +46,10 @@ export const generateMetadata = async ({
   searchParams: Promise<ShareSearchParams>;
 }): Promise<Metadata> => {
   const resolvedParams = await searchParams;
-  const projectName = resolvedParams.p ?? null;
+  const projectName = clampProjectName(resolvedParams.p);
   const score = clampScore(Number(resolvedParams.s) || 0);
-  const errorCount = Math.max(0, Number(resolvedParams.e) || 0);
-  const warningCount = Math.max(0, Number(resolvedParams.w) || 0);
+  const errorCount = clampDisplayCount(Number(resolvedParams.e) || 0);
+  const warningCount = clampDisplayCount(Number(resolvedParams.w) || 0);
   const label = getScoreLabel(score);
 
   const titlePrefix = projectName ? `${projectName} - ` : "";
@@ -92,11 +81,11 @@ export const generateMetadata = async ({
 
 const SharePage = async ({ searchParams }: { searchParams: Promise<ShareSearchParams> }) => {
   const resolvedParams = await searchParams;
-  const projectName = resolvedParams.p ?? null;
+  const projectName = clampProjectName(resolvedParams.p);
   const score = clampScore(Number(resolvedParams.s) || 0);
-  const errorCount = Math.max(0, Number(resolvedParams.e) || 0);
-  const warningCount = Math.max(0, Number(resolvedParams.w) || 0);
-  const fileCount = Math.max(0, Number(resolvedParams.f) || 0);
+  const errorCount = clampDisplayCount(Number(resolvedParams.e) || 0);
+  const warningCount = clampDisplayCount(Number(resolvedParams.w) || 0);
+  const fileCount = clampDisplayCount(Number(resolvedParams.f) || 0);
   const label = getScoreLabel(score);
 
   const shareSearchParams = new URLSearchParams();
@@ -118,7 +107,7 @@ const SharePage = async ({ searchParams }: { searchParams: Promise<ShareSearchPa
         {projectName && <div className="mb-4 text-xl text-white">{projectName}</div>}
         <DoctorFace score={score} />
         <div className="mt-2 text-neutral-500">
-          React Doctor <span className="text-neutral-600">(www.react.doctor)</span>
+          React Doctor <span className="text-neutral-600">(https://react.doctor)</span>
         </div>
       </div>
 
@@ -147,14 +136,14 @@ const SharePage = async ({ searchParams }: { searchParams: Promise<ShareSearchPa
 
       <div className="text-neutral-500">Run it on your codebase:</div>
       <div className="mt-2">
-        <span className="border border-white/20 px-3 py-1.5 text-white">{COMMAND}</span>
+        <span className="border border-white/20 px-3 py-1.5 text-white">{RUN_COMMAND}</span>
       </div>
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
         <a
           href={twitterShareUrl}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap border border-white/20 bg-white px-3 py-1.5 text-black transition-all hover:bg-white/90 active:scale-[0.98]"
         >
           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
@@ -165,7 +154,7 @@ const SharePage = async ({ searchParams }: { searchParams: Promise<ShareSearchPa
         <a
           href={linkedinShareUrl}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap border border-white/20 bg-white px-3 py-1.5 text-black transition-all hover:bg-white/90 active:scale-[0.98]"
         >
           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
