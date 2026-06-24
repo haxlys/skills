@@ -5,30 +5,30 @@
     "url": "https://github.com/haxlys"
   },
   "metadata": {
-    "description": "haxlys's curated agent skills marketplace. Local installable skills live in ./skills; vendored upstream snapshots live in ./vendored.",
-    "version": "0.6.0"
+    "description": "haxlys's curated agent skills marketplace. Local installable skills live in ./skills; external repositories are referenced by URL when possible.",
+    "version": "0.7.0"
   },
   "plugins": [
     {
       "name": "web-design-reviewer",
-      "description": "Visual inspection of websites to identify and fix design issues. Vendored from github/awesome-copilot (MIT).",
+      "description": "Visual inspection of websites to identify and fix design issues. Curated from github/awesome-copilot (MIT).",
       "source": "./skills/web-design-reviewer",
       "category": "frontend",
-      "tags": ["design", "review", "accessibility", "responsive", "vendored"]
+      "tags": ["design", "review", "accessibility", "responsive", "curated"]
     },
     {
       "name": "web-component-design",
-      "description": "Master React, Vue, and Svelte component patterns. Vendored from wshobson/agents (MIT).",
+      "description": "Master React, Vue, and Svelte component patterns. Curated from wshobson/agents (MIT).",
       "source": "./skills/web-component-design",
       "category": "frontend",
-      "tags": ["react", "vue", "svelte", "components", "vendored"]
+      "tags": ["react", "vue", "svelte", "components", "curated"]
     },
     {
       "name": "react-doctor",
-      "description": "Diagnose and fix React code issues — security, performance, correctness, architecture. Outputs a 0-100 score with actionable diagnostics. Vendored from millionco/react-doctor (MIT).",
+      "description": "Diagnose and fix React code issues — security, performance, correctness, architecture. Outputs a 0-100 score with actionable diagnostics. Curated from millionco/react-doctor (MIT).",
       "source": "./skills/react-doctor",
       "category": "frontend",
-      "tags": ["react", "diagnostic", "lint", "performance", "vendored"]
+      "tags": ["react", "diagnostic", "lint", "performance", "curated"]
     },
     {
       "name": "react-performance",
@@ -49,10 +49,10 @@
     },
     {
       "name": "agent-browser",
-      "description": "Browser automation CLI for AI agents. Vendored from vercel-labs/agent-browser (Apache-2.0). Bundles 5 specialized sub-skills loaded on demand via `agent-browser skills get <name>`: electron (Electron desktop apps), slack (Slack workspaces), vercel-sandbox (microVM Chrome), agentcore (AWS Bedrock cloud browser), dogfood (exploratory QA).",
+      "description": "Browser automation CLI for AI agents. Curated from vercel-labs/agent-browser (Apache-2.0). Bundles 5 specialized sub-skills loaded on demand via `agent-browser skills get <name>`: electron (Electron desktop apps), slack (Slack workspaces), vercel-sandbox (microVM Chrome), agentcore (AWS Bedrock cloud browser), dogfood (exploratory QA).",
       "source": "./skills/agent-browser",
       "category": "browser-automation",
-      "tags": ["browser", "automation", "vendored", "electron", "slack", "qa"]
+      "tags": ["browser", "automation", "curated", "electron", "slack", "qa"]
     },
     {
       "name": "superpowers",

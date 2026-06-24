@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const roots = ["skills", "vendored"];
+const roots = ["skills"];
 const problems = [];
 
 function fail(file, message) {

@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'skills/**'
-      - 'vendored/**'
       - '.claude-plugin/**'
       - 'scripts/**'
       - 'README.md'
@@ -36,9 +35,6 @@ jobs:
 
       - name: Validate marketplace, README, and skills layout
         run: node scripts/validate-marketplace.mjs
-
-      - name: Check skills mirror vendored sources
-        run: node scripts/sync-skills-from-vendored.mjs --check
 
       - name: Check skill name == directory name
         run: |
