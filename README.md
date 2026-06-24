@@ -13,21 +13,31 @@ Cross-platform by design: works with **Claude Code, Codex CLI, Gemini CLI, GitHu
 # Install whatever you need (see Catalog below)
 /plugin install web-design-reviewer@haxlys-skills
 /plugin install web-component-design@haxlys-skills
+/plugin install react-performance@haxlys-skills
 /plugin install agent-browser@haxlys-skills        # bundles electron/slack/sandbox/agentcore/dogfood sub-skills
 /plugin install superpowers@haxlys-skills          # references obra/superpowers
 ```
 
 ## Catalog
 
-### Self-authored
+### Local installable skills
 
-| Skill | Category | Description |
-|-------|----------|-------------|
-| _(none yet)_ |  |  |
+`skills/` is the single source of truth for local installable skills. Claude Code,
+Codex, Gemini, Copilot, and other `SKILL.md` consumers should read these paths.
 
-### Vendored plugins (copied + tracked)
+| Skill | Category | Source | Description |
+|-------|----------|--------|-------------|
+| [web-design-reviewer](skills/web-design-reviewer) | frontend | vendored | Visual inspection of websites to identify and fix design issues |
+| [web-component-design](skills/web-component-design) | frontend | vendored | React, Vue, and Svelte component patterns |
+| [react-doctor](skills/react-doctor) | frontend | vendored | React security, performance, correctness, and architecture diagnostics |
+| [react-performance](skills/react-performance) | frontend | self-authored | Modern React performance review workflow based on Sethi's 2026 guidance |
+| [agent-browser](skills/agent-browser) | browser automation | vendored | Browser automation CLI for AI agents |
 
-Pinned to a specific upstream commit; weekly cron opens a PR when upstream advances.
+### Vendored upstream snapshots
+
+`vendored/` stores upstream snapshots used to generate selected `skills/`
+entries. They are pinned to a specific upstream commit; weekly cron opens a PR
+when upstream advances.
 
 | Plugin | Upstream | License |
 |--------|----------|---------|
@@ -48,7 +58,8 @@ Pinned to a specific upstream commit; weekly cron opens a PR when upstream advan
 
 ### Referenced upstream (no vendoring)
 
-Resolved at install time from upstream — always latest.
+Resolved at install time from upstream. These entries remain URL references in
+`.claude-plugin/marketplace.json` and do not have local `skills/` directories.
 
 | Skill | Upstream | License |
 |-------|----------|---------|
@@ -67,12 +78,16 @@ See [`NOTICE`](NOTICE) for full attribution, pinned SHAs, and skipped-skill rati
 ## Repository structure
 
 ```
-skills/                          # SSOT — agentskills.io spec compliant
-.claude-plugin/marketplace.json  # Claude Code catalog
-vendored/                        # External skills copied via git subtree (when local control needed)
+skills/                          # SSOT - local installable skills
+vendored/                        # Upstream snapshots copied via git subtree
+.claude-plugin/marketplace.json  # Claude Code catalog; local sources point to ./skills/*
 .github/workflows/
   validate-skills.yml            # Spec compliance gate
   sync-vendored.yml              # Weekly upstream PR for vendored entries
+scripts/
+  sync-skills-from-vendored.mjs   # Regenerates skills/* from vendored sources
+  validate-skill-frontmatter.mjs   # Checks SKILL.md frontmatter and local names
+  validate-marketplace.mjs        # Checks manifest, skills, and README alignment
 AGENTS.md                        # Cross-platform agent guidance
 ```
 
@@ -97,8 +112,11 @@ AGENTS.md                        # Cross-platform agent guidance
 **Vendoring an external skill:**
 1. Copy upstream into `vendored/<name>/`, preserve the original SKILL.md and add `metadata.upstream`/`metadata.upstream-license`/`metadata.upstream-sha`.
 2. Record the synced SHA in `vendored/<name>/.upstream-sha`.
-3. Add an entry to `NOTICE` (Vendored table) with date + SHA.
-4. Add the skill to `.github/workflows/sync-vendored.yml` matrix so weekly PRs are opened on upstream changes.
+3. Add or update the mapping in `scripts/sync-skills-from-vendored.mjs`.
+4. Run `node scripts/sync-skills-from-vendored.mjs` so `skills/<name>` is regenerated from the vendored source.
+5. Add an entry to `NOTICE` (Vendored table) with date + SHA.
+6. Add the skill to `.github/workflows/sync-vendored.yml` matrix so weekly PRs are opened on upstream changes.
+7. Validate with `node scripts/validate-marketplace.mjs` and `node scripts/sync-skills-from-vendored.mjs --check`.
 
 ## License
 

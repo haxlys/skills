@@ -1,0 +1,20 @@
+{
+  "name": "react-performance",
+  "description": "Modern React performance review workflow based on Sethi's 2026 guidance: state colocation, children composition, React Compiler-aware memoization, concurrent rendering, lazy loading, profiling, and common re-render hazards.",
+  "version": "0.1.0",
+  "author": {
+    "name": "haxlys",
+    "url": "https://github.com/haxlys"
+  },
+  "homepage": "https://github.com/haxlys/skills/tree/main/skills/react-performance",
+  "license": "MIT",
+  "keywords": [
+    "react",
+    "performance",
+    "rerender",
+    "profiler",
+    "useTransition",
+    "useDeferredValue",
+    "react-compiler"
+  ]
+}

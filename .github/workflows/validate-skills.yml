@@ -6,6 +6,9 @@ on:
       - 'skills/**'
       - 'vendored/**'
       - '.claude-plugin/**'
+      - 'scripts/**'
+      - 'README.md'
+      - 'AGENTS.md'
   push:
     branches: [main]
   workflow_dispatch:
@@ -20,19 +23,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Validate SKILL.md frontmatter (agentskills.io spec)
-        run: |
-          set -e
-          shopt -s globstar nullglob
-          FILES=(skills/**/SKILL.md vendored/**/SKILL.md)
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No SKILL.md files found — nothing to validate."
-            exit 0
-          fi
-          for f in "${FILES[@]}"; do
-            echo "Validating $f"
-            npx -y @agentskills/skills-ref validate "$(dirname "$f")"
-          done
+      - name: Validate SKILL.md frontmatter
+        run: node scripts/validate-skill-frontmatter.mjs
 
       - name: Validate marketplace.json
         run: |
@@ -41,6 +33,12 @@ jobs:
             node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json'))"
             echo "marketplace.json is valid JSON"
           fi
+
+      - name: Validate marketplace, README, and skills layout
+        run: node scripts/validate-marketplace.mjs
+
+      - name: Check skills mirror vendored sources
+        run: node scripts/sync-skills-from-vendored.mjs --check
 
       - name: Check skill name == directory name
         run: |

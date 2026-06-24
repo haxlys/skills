@@ -68,7 +68,8 @@ jobs:
           fi
           mkdir -p ${{ matrix.path }}
           echo "$UPSTREAM_SHA" > ${{ matrix.path }}/${{ matrix.sha-file }}
-          git add ${{ matrix.path }}/${{ matrix.sha-file }}
+          node scripts/sync-skills-from-vendored.mjs
+          git add ${{ matrix.path }}/${{ matrix.sha-file }} skills
           git commit --amend --no-edit || true
           echo "changed=true" >> "$GITHUB_OUTPUT"
 

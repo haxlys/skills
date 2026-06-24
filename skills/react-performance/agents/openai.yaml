@@ -1,0 +1,4 @@
+interface:
+  display_name: "React Performance"
+  short_description: "Review React apps for modern rendering performance"
+  default_prompt: "Review this React code for modern performance issues."
