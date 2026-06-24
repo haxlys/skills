@@ -1,42 +1,48 @@
 # NOTICE
 
-This repository contains both self-authored skills (MIT, © haxlys) and vendored copies / references to skills authored by third parties. Each third-party entry below retains its original license; see the linked source for full terms.
+This repository contains self-authored skills and curated local copies of skills authored by third parties. Each third-party entry retains its original license; see the linked source for full terms.
 
-## Vendored (full upstream copy via git subtree)
+## Self-authored
 
-Files placed under `vendored/<name>/` are copies of upstream code at a specific commit. The `vendored/<name>/.upstream-sha-haxlys` file records the last synced SHA. The `sync-vendored.yml` workflow opens a PR whenever the upstream advances.
+| Skill | Path | License |
+|-------|------|---------|
+| react-performance | `skills/react-performance` | MIT |
 
-| Plugin (exposed) | Upstream | License | Last sync (SHA) | Date |
-|------------------|----------|---------|-----------------|------|
-| web-design-reviewer | https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer | MIT | `63d08d51f792d53feec8c1c06897cee870e83c18` | 2026-04-27 |
-| web-component-design | https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/web-component-design | MIT | `adde832d8fc08cfb22ab44ec14661293c7ad9153` | 2026-04-27 |
-| agent-browser | https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
-| react-doctor | https://github.com/millionco/react-doctor/tree/main/skills/react-doctor | MIT | `7da4ce4e27cb5208ed52ad9d01cae32f96ac177f` | 2026-04-27 |
+## Curated local copies
 
-### agent-browser bundled sub-skills (NOT separately installable)
+These skills are stored directly under `skills/` so the marketplace remains installable without a separate upstream snapshot tree. The SHA records the upstream revision used when the local copy was created or last refreshed.
 
-The vercel-labs/agent-browser repo ships 5 sub-skills under `skill-data/` that the agent-browser CLI loads on demand via `agent-browser skills get <name>`. They are **vendored along with the parent plugin** but not exposed as separate Claude marketplace plugins (matching upstream's design — upstream's own marketplace.json declares only one plugin: `agent-browser`).
+| Skill | Local path | Upstream | License | Upstream SHA | Date |
+|-------|------------|----------|---------|--------------|------|
+| web-design-reviewer | `skills/web-design-reviewer` | https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer | MIT | `63d08d51f792d53feec8c1c06897cee870e83c18` | 2026-04-27 |
+| web-component-design | `skills/web-component-design` | https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/web-component-design | MIT | `adde832d8fc08cfb22ab44ec14661293c7ad9153` | 2026-04-27 |
+| agent-browser | `skills/agent-browser` | https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser | Apache-2.0 | `57405f93614fae46e5c955ce662b4785283e1301` | 2026-04-27 |
+| react-doctor | `skills/react-doctor` | https://github.com/millionco/react-doctor/tree/main/skills/react-doctor | MIT | `7da4ce4e27cb5208ed52ad9d01cae32f96ac177f` | 2026-04-27 |
 
-| Sub-skill | Vendored path | Loaded via |
-|-----------|---------------|-----------|
-| electron       | `vendored/agent-browser/skill-data/electron`       | `agent-browser skills get electron` |
-| slack          | `vendored/agent-browser/skill-data/slack`          | `agent-browser skills get slack` |
-| vercel-sandbox | `vendored/agent-browser/skill-data/vercel-sandbox` | `agent-browser skills get vercel-sandbox` |
-| agentcore     | `vendored/agent-browser/skill-data/agentcore`      | `agent-browser skills get agentcore` |
-| dogfood        | `vendored/agent-browser/skill-data/dogfood`        | `agent-browser skills get dogfood` |
+### agent-browser bundled sub-skills
 
-## Referenced upstream (no copy — Claude Code marketplace `source: github`)
+The vercel-labs/agent-browser CLI loads specialized sub-skills on demand via `agent-browser skills get <name>`. They are not stored in this repository and are not exposed as separate marketplace plugins here.
 
-Resolved at install time directly from the upstream repository — always latest, no local copy.
+| Sub-skill | Loaded via |
+|-----------|------------|
+| electron | `agent-browser skills get electron` |
+| slack | `agent-browser skills get slack` |
+| vercel-sandbox | `agent-browser skills get vercel-sandbox` |
+| agentcore | `agent-browser skills get agentcore` |
+| dogfood | `agent-browser skills get dogfood` |
+
+## Referenced upstream
+
+Resolved at install time directly from the upstream repository; no local copy is stored here.
 
 | Skill | Upstream | License | First referenced |
 |-------|----------|---------|------------------|
 | superpowers | https://github.com/obra/superpowers | MIT | 2026-04-27 |
 | understand-anything | https://github.com/Lum1104/Understand-Anything | MIT | 2026-04-27 |
 
-## External skills NOT redistributed via this marketplace
+## External skills not redistributed via this marketplace
 
-The following skills are useful and the AEREN team has used them, but they live in upstream repositories that lack a LICENSE file and a Claude Code-compatible plugin manifest. They cannot be redistributed (no license) and cannot be referenced via `source: github` (no plugin.json upstream). To use them, install upstream directly:
+The following skills are useful and the AEREN team has used them, but they live in upstream repositories that lack a LICENSE file and a Claude Code-compatible plugin manifest. They are not redistributed here. To use them, install upstream directly:
 
 | Skill | Upstream | Notes |
 |-------|----------|-------|

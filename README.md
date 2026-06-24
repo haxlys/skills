@@ -27,24 +27,11 @@ Codex, Gemini, Copilot, and other `SKILL.md` consumers should read these paths.
 
 | Skill | Category | Source | Description |
 |-------|----------|--------|-------------|
-| [web-design-reviewer](skills/web-design-reviewer) | frontend | vendored | Visual inspection of websites to identify and fix design issues |
-| [web-component-design](skills/web-component-design) | frontend | vendored | React, Vue, and Svelte component patterns |
-| [react-doctor](skills/react-doctor) | frontend | vendored | React security, performance, correctness, and architecture diagnostics |
+| [web-design-reviewer](skills/web-design-reviewer) | frontend | curated upstream | Visual inspection of websites to identify and fix design issues |
+| [web-component-design](skills/web-component-design) | frontend | curated upstream | React, Vue, and Svelte component patterns |
+| [react-doctor](skills/react-doctor) | frontend | curated upstream | React security, performance, correctness, and architecture diagnostics |
 | [react-performance](skills/react-performance) | frontend | self-authored | Modern React performance review workflow based on Sethi's 2026 guidance |
-| [agent-browser](skills/agent-browser) | browser automation | vendored | Browser automation CLI for AI agents |
-
-### Vendored upstream snapshots
-
-`vendored/` stores upstream snapshots used to generate selected `skills/`
-entries. They are pinned to a specific upstream commit; weekly cron opens a PR
-when upstream advances.
-
-| Plugin | Upstream | License |
-|--------|----------|---------|
-| [web-design-reviewer](vendored/web-design-reviewer) | [github/awesome-copilot](https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer) | MIT |
-| [web-component-design](vendored/wshobson-agents/plugins/ui-design/skills/web-component-design) | [wshobson/agents](https://github.com/wshobson/agents) | MIT |
-| [agent-browser](vendored/agent-browser/skills/agent-browser) | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Apache-2.0 |
-| [react-doctor](vendored/react-doctor/skills/react-doctor) | [millionco/react-doctor](https://github.com/millionco/react-doctor) | MIT |
+| [agent-browser](skills/agent-browser) | browser automation | curated upstream | Browser automation CLI for AI agents |
 
 **`agent-browser` bundles 5 specialized sub-skills** loaded on demand via the CLI, not separately installable as Claude plugins:
 
@@ -56,7 +43,7 @@ when upstream advances.
 | `agentcore`       | Run on AWS Bedrock AgentCore cloud browsers               | `agent-browser skills get agentcore` |
 | `dogfood`         | Exploratory testing / QA / bug hunts                      | `agent-browser skills get dogfood` |
 
-### Referenced upstream (no vendoring)
+### Referenced upstream
 
 Resolved at install time from upstream. These entries remain URL references in
 `.claude-plugin/marketplace.json` and do not have local `skills/` directories.
@@ -79,13 +66,10 @@ See [`NOTICE`](NOTICE) for full attribution, pinned SHAs, and skipped-skill rati
 
 ```
 skills/                          # SSOT - local installable skills
-vendored/                        # Upstream snapshots copied via git subtree
 .claude-plugin/marketplace.json  # Claude Code catalog; local sources point to ./skills/*
 .github/workflows/
   validate-skills.yml            # Spec compliance gate
-  sync-vendored.yml              # Weekly upstream PR for vendored entries
 scripts/
-  sync-skills-from-vendored.mjs   # Regenerates skills/* from vendored sources
   validate-skill-frontmatter.mjs   # Checks SKILL.md frontmatter and local names
   validate-marketplace.mjs        # Checks manifest, skills, and README alignment
 AGENTS.md                        # Cross-platform agent guidance
@@ -109,15 +93,12 @@ AGENTS.md                        # Cross-platform agent guidance
 3. Validate locally: `claude plugin validate skills/<name>` and `claude plugin validate .`.
 4. Open a PR. CI runs the same checks.
 
-**Vendoring an external skill:**
-1. Copy upstream into `vendored/<name>/`, preserve the original SKILL.md and add `metadata.upstream`/`metadata.upstream-license`/`metadata.upstream-sha`.
-2. Record the synced SHA in `vendored/<name>/.upstream-sha`.
-3. Add or update the mapping in `scripts/sync-skills-from-vendored.mjs`.
-4. Run `node scripts/sync-skills-from-vendored.mjs` so `skills/<name>` is regenerated from the vendored source.
-5. Add an entry to `NOTICE` (Vendored table) with date + SHA.
-6. Add the skill to `.github/workflows/sync-vendored.yml` matrix so weekly PRs are opened on upstream changes.
-7. Validate with `node scripts/validate-marketplace.mjs` and `node scripts/sync-skills-from-vendored.mjs --check`.
+**Curating an upstream skill locally:**
+1. Add the installable skill directly under `skills/<name>/`.
+2. Preserve upstream attribution in `NOTICE` and plugin metadata.
+3. Add an entry to `.claude-plugin/marketplace.json` with `source: ./skills/<name>`.
+4. Validate with `node scripts/validate-skill-frontmatter.mjs` and `node scripts/validate-marketplace.mjs`.
 
 ## License
 
-MIT (self-authored skills). Vendored skills retain their original licenses — see [`NOTICE`](NOTICE).
+MIT (self-authored skills). Curated upstream skills retain their original licenses — see [`NOTICE`](NOTICE).

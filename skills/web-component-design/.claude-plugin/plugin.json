@@ -1,12 +1,12 @@
 {
   "name": "web-component-design",
-  "description": "Master React, Vue, and Svelte component patterns. Vendored from wshobson/agents.",
-  "version": "0.1.0+vendored.adde832",
+  "description": "Master React, Vue, and Svelte component patterns. Curated from wshobson/agents.",
+  "version": "0.1.0+curated.adde832",
   "author": {
-    "name": "Seth Hobson (vendored by haxlys)",
+    "name": "Seth Hobson (curated by haxlys)",
     "url": "https://github.com/wshobson/agents"
   },
   "homepage": "https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/web-component-design",
   "license": "MIT",
-  "keywords": ["react", "vue", "svelte", "components", "design-system", "vendored"]
+  "keywords": ["react", "vue", "svelte", "components", "design-system", "curated"]
 }
