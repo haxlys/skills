@@ -6,8 +6,9 @@ This repository hosts haxlys's collection of [Agent Skills](https://agentskills.
 
 - `skills/` — single source of truth. Each subdirectory is one skill (`SKILL.md` + optional `references/`, `scripts/`, `assets/`).
 - `vendored/` — external skills copied in via `git subtree` when local control is required (with `.upstream-sha` for sync tracking).
-- `.claude-plugin/marketplace.json` — Claude Code marketplace catalog. References both local skills and trusted upstream repos (e.g., `obra/superpowers`).
-- `.github/workflows/` — `validate-skills.yml` enforces frontmatter spec compliance; `sync-vendored.yml` opens weekly PRs when vendored upstreams change.
+- `.claude-plugin/marketplace.json` — Claude Code marketplace catalog. Local entries MUST point at `./skills/<name>`; trusted upstream repos may remain URL references.
+- `scripts/` — maintenance checks and generators that keep `skills/`, `vendored/`, README, and the marketplace manifest aligned.
+- `.github/workflows/` — `validate-skills.yml` enforces frontmatter/layout checks; `sync-vendored.yml` opens weekly PRs when vendored upstreams change.
 
 ## Conventions
 
@@ -20,8 +21,15 @@ This repository hosts haxlys's collection of [Agent Skills](https://agentskills.
 ## Commands
 
 ```bash
-# Validate all skills against the spec
-npx -y @agentskills/skills-ref validate skills/**/SKILL.md vendored/**/SKILL.md
+# Validate all skill frontmatter and local skill names
+node scripts/validate-skill-frontmatter.mjs
+
+# Regenerate local installable skills from vendored upstream snapshots
+node scripts/sync-skills-from-vendored.mjs
+
+# Check that skills/, marketplace.json, and README agree
+node scripts/sync-skills-from-vendored.mjs --check
+node scripts/validate-marketplace.mjs
 
 # Manually sync a vendored upstream
 git subtree pull --prefix=vendored/<name> <name> main --squash
